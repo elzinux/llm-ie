@@ -1,0 +1,42 @@
+### --- 你的项目特定目录 ---
+# 忽略数据文件夹（大文件、原始数据、中间处理结果）
+data/
+# 如果实验记录不需要追踪，也可以忽略
+experiments/
+# 忽略任何测试产生的临时文本
+utf8-test.txt
+
+### --- Python 环境与缓存 ---
+__pycache__/
+*.py[cod]
+*$py.class
+# 虚拟环境
+.venv/
+env/
+venv/
+ENV/
+
+### --- 敏感信息与配置 ---
+# 忽略所有环境配置文件
+.env
+.env.*
+# 个人身份验证文件
+*.pem
+*.key
+
+### --- 操作系统与 IDE ---
+# macOS
+.DS_Store
+# Windows
+Thumbs.db
+# VS Code
+.vscode/
+# PyCharm / IntelliJ
+.idea/
+
+### --- 日志与临时文件 ---
+*.log
+.ipynb_checkpoints/
+.pytest_cache/
+.coverage
+htmlcov/
