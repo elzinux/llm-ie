@@ -82,12 +82,14 @@ class PreparedSummaryChunk:
     - text: 最终送入摘要模型的文本
     - token_count: 当前块 token 数
     - extraction_records: 当前块对应的粗提取结果
+    - source_block_indices: 当前块来源的原始 block 编号
     """
 
     prepared_chunk_id: int
     text: str
     token_count: int
     extraction_records: list[ExtractionRecord] = field(default_factory=list)
+    source_block_indices: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -97,6 +99,7 @@ class CheckResult:
     relation_score: float = 0.0
     semantic_eval_score: float = 0.0
     overall_score: float = 0.0
+    status: str = ""
 
 
 @dataclass
@@ -134,6 +137,7 @@ class SummaryChunkResult:
     - summary: 模型生成的摘要
     - attempts: 实际摘要尝试次数
     - check_result: 检查结果
+    - retry_reasons: 每次重摘要对应的失败分数项
     """
 
     prepared_chunk_id: int
@@ -141,6 +145,7 @@ class SummaryChunkResult:
     summary: str
     attempts: int
     check_result: CheckResult
+    retry_reasons: list[list[str]] = field(default_factory=list)
 
 
 @dataclass

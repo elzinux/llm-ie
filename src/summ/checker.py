@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer, util
 
 from src.summ.config import CheckConfig
 from src.summ.schemas import CheckResult, ExtractionRecord, PreparedSummaryChunk
-from src.summ.semantic_eval import score_semantic_eval
+from src.summ.semantic_eval.scorer import score_semantic_eval
 
 _EMBEDDING_MODEL_CACHE: dict[str, SentenceTransformer] = {}
 _DEFAULT_EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"

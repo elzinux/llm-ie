@@ -1,34 +1,19 @@
-import math
-
-# __pycache__
-# .venv
-# data
-# experiments
-# src
-# tests
-# .env
-# .gitignore
-# .python-version
-# main.py
-# pyproject.toml
-# README.md
-# requirements.txt
-# test.py
-# utf8-test.txt
-# uv.lock
-
-
-def test_math_package() -> bool:
-    """测试 `math` 标准库是否可以正常使用。"""
-    number = 16
-    result = math.isqrt(number)
-
-    print(f"math.isqrt({number}) 的结果是 {result}")
-    return result == 4
-
-
-if __name__ == "__main__":
-    if test_math_package():
-        print("math 包可以正常使用。")
-    else:
-        print("math 包测试失败。")
+"""
+你需要重新实现experiments/summ下的result_writer.py，run_summ_experiment.py脚本。
+在我的experiments/summ/readers/下有一个文件md_reader.py，用来读取md文件，处理之后返回数据结构InputDocument，这个数据结构你可以在src/summ/schemas.py下找到。
+需要实现一个主函数，用来跑通整个摘要测试，主函数输入的参数是一个md文件，保存的内容修改为下面的内容，保存为json格式。
+chunck：输入到大模型进行摘要的文本
+summary：最终的摘要
+accept：bool值是否接受了最终的摘要
+mid_res：
+    title：文本标题
+    text：原始文本
+    keywords：抽取出来的关键词
+    key_sentences：抽取出来的关键句
+    summ_score：摘要获得的四个分数(列表类型)
+    summ_count：摘要过几次
+    reason：重新摘要的原因（List[List[str]]，内部的List用来记录是那些分数没有达到阈值，外部的List则是在多次重摘要的时候保留原因）
+还需要实现一个函数来调用该主函数，用以实现批处理文件夹下的md文件，之后的使用都会以这个函数作为调用接口，
+我给定的输入文件一般为data/raw/md_files_name/md_name1.md保存文件的内容就保存在data/outputs/md_files_name_summ/md_name1_summ.json
+你还需要对src/summ/pipeline.py脚本和其他src/summ下的相关脚本进行一些修改，主要是调整一下返回的内容，确保能正确的识别到是那个分数没有达到阈值导致的重新摘要。
+"""

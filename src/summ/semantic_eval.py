@@ -1,304 +1,278 @@
-from __future__ import annotations
-
-import os
-import re
-
-import networkx as nx
-import numpy as np
-from openai import OpenAI
-from sklearn.metrics.pairwise import cosine_similarity
-
-EMBED_MODEL = "text-embedding-3-large"
-
-
-class TextSegmenter:
-    """
-    与原仓库保持一致的轻量句子切分器。
-    """
-
-    def __init__(self, split_pattern: str | None = None, threshold: int = 3) -> None:
-        if split_pattern is None:
-            self.split_pattern = r'(?<!\d)(?<=[.!?])\s+(?=["“‘\(A-Z])'
-        else:
-            self.split_pattern = split_pattern
-        self.threshold = threshold
-
-    def count_tokens(self, text: str) -> int:
-        return len(text.split())
-
-    def refine(self, raw_text: str) -> list[dict[str, str]]:
-        if not isinstance(raw_text, str) or not raw_text.strip():
-            return []
-
-        refined = re.sub(r"(\d+\.)\s+", r"\1 ", raw_text)
-        segments = re.split(self.split_pattern, refined)
-
-        final_segments: list[dict[str, str]] = []
-        for s in segments:
-            s = s.strip()
-            if not s:
-                continue
-            if re.match(r"^\d+\.$", s):
-                continue
-            if self.count_tokens(s) >= self.threshold:
-                final_segments.append({"sentence": s})
-
-        return final_segments
-
-
-class EmbeddingClient:
-    """
-    仅把原仓库的 embedding 调用改成新版 OpenAI SDK。
-    其余行为尽量保持原思路。
-    """
-
-    def __init__(
-        self, api_key: str | None = None, model_name: str = EMBED_MODEL
-    ) -> None:
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("Missing OpenAI API key.")
-        self.client = OpenAI(api_key=self.api_key)
-        self.model_name = model_name
-
-    def embed_one(self, input_text: str) -> list[float] | None:
-        if not isinstance(input_text, str) or not input_text.strip():
-            return None
-
-        try:
-            response = self.client.embeddings.create(
-                input=input_text,
-                model=self.model_name,
-            )
-            return response.data[0].embedding
-        except Exception:
-            return None
-
-    def gather(self, block: list[dict[str, str]], prefix: str) -> list[str]:
-        found: list[str] = []
-        for item in block:
-            for k, v in item.items():
-                if k.startswith(prefix):
-                    found.append(v)
-                    break
-        return found
-
-    def package(
-        self, records: list[dict[str, str]], name: str
-    ) -> dict[str, np.ndarray | list[str] | None]:
-        phrases = self.gather(records, "sentence")
-        storage: list[list[float]] = []
-
-        for element in phrases:
-            emb = self.embed_one(element)
-            if emb is not None:
-                storage.append(emb)
-
-        matrix = np.array(storage, dtype=float) if storage else None
-        return {"phrases": phrases, "matrix": matrix}
-
-
-class GraphRanker:
-    """
-    与原仓库 GraphRanker 的计算流程保持一致。
-    """
-
-    def __init__(self, threshold: float = 0.1, alpha: float = 0.85) -> None:
-        self.threshold = threshold
-        self.alpha = alpha
-
-    def compute_smat(self, emb: np.ndarray) -> np.ndarray:
-        return cosine_similarity(emb)
-
-    def create_graph(self, sm: np.ndarray) -> nx.Graph:
-        g = nx.Graph()
-        n = sm.shape[0]
-        g.add_nodes_from(range(n))
-
-        for i in range(n):
-            for j in range(i + 1, n):
-                if sm[i][j] >= self.threshold:
-                    g.add_edge(i, j, weight=sm[i][j])
-
-        return g
-
-    def rank(self, g: nx.Graph) -> dict[int, float]:
-        return nx.pagerank(g, alpha=self.alpha, weight="weight")
-
-    def scale(self, w: dict[int, float]) -> np.ndarray:
-        arr = np.array(list(w.values()), dtype=float)
-        tot = arr.sum()
-        if tot == 0:
-            raise ValueError("Zero sum.")
-        return arr / tot
-
-    def process(self, emb: np.ndarray) -> np.ndarray:
-        sm = self.compute_smat(emb)
-        g = self.create_graph(sm)
-        r = self.rank(g)
-        return self.scale(r)
-
-
-class SemanticEvalScorer:
-    """
-    这里刻意按原仓库的 finalize/merge_weights/compute_normalized_reweights 行为实现。
-    也就是说：保留原仓库中的若干可疑点，以便最大程度复现原始结果。
-    """
-
-    def compute_normalized_reweights(
-        self,
-        max_vals: np.ndarray,
-        ma: float,
-        se: float,
-    ) -> list[float]:
-        selected_weights_np = np.array(max_vals)
-
-        if len(selected_weights_np) == 0:
-            return []
-        if len(selected_weights_np) == 1:
-            return [1.0]
-
-        ma_index = np.argmax(selected_weights_np)
-        temp_weights = selected_weights_np.copy()
-        temp_weights[ma_index] = -np.inf
-        se_index = np.argmax(temp_weights)
-
-        re_weight = 1 - ma - se
-        remaining_values = np.delete(selected_weights_np, [ma_index, se_index])
-        num_remaining = len(remaining_values)
-
-        # 保留原仓库行为：n == 2 时直接返回 [ma, se]
-        if num_remaining == 0:
-            return [ma, se]
-
-        if np.sum(remaining_values) == 0:
-            remaining = [re_weight / num_remaining] * num_remaining
-        else:
-            total = np.sum(remaining_values)
-            relative = remaining_values / total
-            remaining = relative * re_weight
-
-        # 这里不能再写 remaining.tolist()，因为 remaining 有时是 list
-        norm_w = list(remaining)
-        norm_w.insert(se_index, se)
-        norm_w.insert(ma_index, ma)
-
-        return norm_w
-
-    def merge_weights(self, cw: np.ndarray, lw: np.ndarray) -> np.ndarray:
-        return (cw[:, np.newaxis] + lw) / 2
-
-    def finalize(
-        self,
-        c_data,
-        l_data,
-        w: np.ndarray,
-    ) -> float | None:
-        c_mat = c_data.get("matrix")
-        l_mat = l_data.get("matrix")
-
-        if c_mat is None or l_mat is None:
-            return None
-
-        c_mat = np.asarray(c_mat, dtype=float)
-        l_mat = np.asarray(l_mat, dtype=float)
-
-        try:
-            smat = cosine_similarity(c_mat, l_mat)
-            smat = np.nan_to_num(smat)
-        except Exception:
-            return None
-
-        max_vals = smat.max(axis=1)
-        index_vals = smat.argmax(axis=1)
-
-        # 保留原仓库行为：sel_w 计算了，但最终并未参与打分
-        row_ids = np.arange(w.shape[0])
-        _sel_w = w[row_ids, index_vals]
-
-        norm_w = self.compute_normalized_reweights(max_vals, ma=0.5, se=0.3)
-        final_val = np.sum(np.array(norm_w, dtype=float) * max_vals)
-        final_val = round(float(final_val), 2)
-        return final_val
-
-
-def score_semantic_eval(
-    candidate_text: str,
-    reference_text: str,
-    api_key: str | None = None,
-    embedding_model: str = EMBED_MODEL,
-) -> float:
-    """
-    计算候选文本与参考文本之间的语义评估分数。
-
-    注意：为了完全对齐原仓库的计算逻辑，此处的内部变量流向保留了原仓库中
-    略显“反直觉”的命名和映射关系。
-
-    Args:
-        candidate_text: 待评估的候选文本 (对应原仓库的 row['candidate'])
-        reference_text: 参考标准文本 (对应原仓库的 row['reference'])
-        api_key: OpenAI API 密钥
-        embedding_model: 调用的 Embedding 模型名称
-
-    Returns:
-        基于图排序 (PageRank) 和余弦相似度计算的最终语义得分。
-        如果计算失败或输入无效，则返回 0.0。
-    """
-    # 1. 前置检查：验证输入文本是否为有效字符串且不为空
-    if not isinstance(candidate_text, str) or not candidate_text.strip():
-        return 0.0
-    if not isinstance(reference_text, str) or not reference_text.strip():
-        return 0.0
-
-    segmenter = TextSegmenter()
-
-    # 2. 文本分句：保留原仓库 run() 的实际流向
-    # 【重点映射】
-    # lab_sents 处理的是候选文本 (candidate_text)
-    # cand_sents 处理的是参考文本 (reference_text)
-    lab_sents = segmenter.refine(candidate_text)
-    cand_sents = segmenter.refine(reference_text)
-
-    # 如果任一文本无法被有效切分为句子，则直接返回 0分
-    if not lab_sents or not cand_sents:
-        return 0.0
-
-    # 3. 初始化核心组件
-    embedder = EmbeddingClient(api_key=api_key, model_name=embedding_model)
-    scorer = SemanticEvalScorer()
-    ranker = GraphRanker()
-
-    # 4. 向量化打包：将切分好的句子转化为 Embedding 向量矩阵
-    # lab_vector_data 实际承载的是 candidate_text 的特征
-    # candidate_vector_data 实际承载的是 reference_text 的特征
-    lab_vector_data = embedder.package(lab_sents, "Lab")
-    candidate_vector_data = embedder.package(cand_sents, "candidate")
-
-    lab_matrix = lab_vector_data.get("matrix")
-    candidate_matrix = candidate_vector_data.get("matrix")
-
-    # 确保两边都成功提取到了向量矩阵，否则无法进行后续计算
-    if lab_matrix is None or candidate_matrix is None:
-        return 0.0
-
-    # 统一转换为 numpy 数组，规范化数据类型
-    lab_matrix = np.asarray(lab_matrix, dtype=float)
-    candidate_matrix = np.asarray(candidate_matrix, dtype=float)
-
-    # 5. 图排序处理：基于句子间的相似度网络，计算各个句子的重要性权重
-    lw = ranker.process(lab_matrix)
-    cw = ranker.process(candidate_matrix)
-
-    # 合并候选与参考文本的句子权重矩阵
-    wmat = scorer.merge_weights(cw, lw)
-
-    # 6. 最终得分计算
-    # 先传 candidate_vector_data (实际是 reference)，再传 lab_vector_data (实际是 candidate)
-    result = scorer.finalize(
-        {"phrases": candidate_vector_data.get("phrases"), "matrix": candidate_matrix},
-        {"phrases": lab_vector_data.get("phrases"), "matrix": lab_matrix},
-        wmat,
-    )
-
-    # 7. 返回结果：如果 finalize 因异常返回了 None，则退回 0.0
-    return 0.0 if result is None else float(result)
+# import json
+# import logging
+# import re
+# import sys
+
+# import networkx as nx
+# import numpy as np
+# from sentence_transformers import SentenceTransformer
+# from sklearn.metrics.pairwise import cosine_similarity
+
+# EMBED_MODEL = r"sentence-transformers/all-MiniLM-L6-v2"
+
+
+# class TextSegmenter:
+#     def __init__(self, split_pattern=None, threshold=3):
+#         if split_pattern is None:
+#             self.split_pattern = r'(?<!\d)(?<=[.!?])\s+(?=["“‘\(A-Z])'
+#         else:
+#             self.split_pattern = split_pattern
+#         self.threshold = threshold
+
+#     def count_tokens(self, sample: str) -> int:
+#         return len(sample.split())
+
+#     def refine(self, raw_text: str) -> list[dict[str, str]]:
+#         refined = re.sub(r"(\d+\.)\s+", r"\1 ", raw_text)
+#         segments = re.split(self.split_pattern, refined)
+
+#         final_segments = []
+#         for s in segments:
+#             s = s.strip()
+#             if re.match(r"^\d+\.$", s):
+#                 continue
+#             if self.count_tokens(s) >= self.threshold:
+#                 final_segments.append({"sentence": s})
+#         return final_segments
+
+#     def encode_json(self, data, label="sentences"):
+#         return json.dumps({label: data}, ensure_ascii=False, indent=4)
+
+#     def save(self, data, path, label="sentences"):
+#         with open(path, "w", encoding="utf-8") as f:
+#             json.dump({label: data}, f, ensure_ascii=False, indent=4)
+
+
+# class LocalVectorSimilarity:
+#     """
+#     仅替换向量模型与编码方式：
+#     - 原脚本使用 OpenAI Embedding API
+#     - 这里改为本地 SentenceTransformer
+#     其余加权与最终得分逻辑保持不变
+#     """
+
+#     _model_cache: dict[str, SentenceTransformer] = {}
+
+#     def __init__(self, embedding_model: str = EMBED_MODEL):
+#         logging.basicConfig(
+#             level=logging.INFO,
+#             format="%(asctime)s [%(levelname)s] %(message)s",
+#             handlers=[logging.StreamHandler(sys.stdout)],
+#         )
+#         self.embedding_model = embedding_model
+#         self.model = self._load_model(embedding_model)
+
+#     @classmethod
+#     def _load_model(cls, model_name_or_path: str) -> SentenceTransformer:
+#         if model_name_or_path not in cls._model_cache:
+#             cls._model_cache[model_name_or_path] = SentenceTransformer(
+#                 model_name_or_path
+#             )
+#         return cls._model_cache[model_name_or_path]
+
+#     def embed(self, input_text: str, model: str | None = None) -> list[float] | None:
+#         """
+#         保持与原先 embed 接口含义一致，但改为本地编码。
+#         """
+#         try:
+#             encoder = (
+#                 self.model
+#                 if model is None or model == self.embedding_model
+#                 else self._load_model(model)
+#             )
+#             vec = encoder.encode(
+#                 input_text,
+#                 convert_to_numpy=True,
+#                 normalize_embeddings=False,
+#             )
+#             return vec.tolist()
+#         except Exception as e:
+#             logging.error(f"Local embedding error: {e}")
+#             return None
+
+#     def gather(self, block, prefix):
+#         found = []
+#         for i in block:
+#             for k, v in i.items():
+#                 if k.startswith(prefix):
+#                     found.append(v)
+#                     break
+#         return found
+
+#     def normalize(self, vals):
+#         total = sum(vals)
+#         if total == 0:
+#             raise ValueError("Zero sum.")
+#         return np.array([v / total for v in vals])
+
+#     def package(self, records, name):
+#         phrases = self.gather(records, "sentence")
+#         storage = []
+
+#         for element in phrases:
+#             e = self.embed(element)
+#             if e is not None:
+#                 storage.append(e)
+#             else:
+#                 logging.warning(f"Failed on: {element}")
+
+#         if storage:
+#             mat = np.array(storage, dtype=np.float32)
+#         else:
+#             logging.warning(f"No embeddings found: {name}")
+#             mat = None
+
+#         return {"phrases": phrases, "matrix": mat}
+
+#     def compute_normalized_reweights(self, max_vals, ma, se):
+#         selected_weights_np = np.array(max_vals)
+#         if len(selected_weights_np) == 0:
+#             return []
+#         if len(selected_weights_np) == 1:
+#             return [1.0]
+
+#         ma_index = np.argmax(selected_weights_np)
+#         temp_weights = selected_weights_np.copy()
+#         temp_weights[ma_index] = -np.inf
+#         se_index = np.argmax(temp_weights)
+
+#         re = 1 - ma - se
+#         remaining_values = np.delete(selected_weights_np, [ma_index, se_index])
+#         num_remaining = len(remaining_values)
+
+#         if num_remaining == 0:
+#             return [ma, se]
+
+#         if np.sum(remaining_values) == 0:
+#             remaining = [re / num_remaining] * num_remaining
+#         else:
+#             total = np.sum(remaining_values)
+#             relative = remaining_values / total
+#             remaining = relative * re
+
+#         norm_w = list(remaining)
+#         norm_w.insert(se_index, se)
+#         norm_w.insert(ma_index, ma)
+#         return norm_w
+
+#     def finalize(self, c_data, l_data, w):
+#         c_mat = c_data.get("matrix")
+#         l_mat = l_data.get("matrix")
+#         if c_mat is None or l_mat is None:
+#             logging.error("Missing embeddings.")
+#             return None
+
+#         try:
+#             smat = cosine_similarity(c_mat, l_mat)
+#             smat = np.nan_to_num(smat)
+#         except Exception as e:
+#             logging.error(f"Similarity error: {e}")
+#             return None
+
+#         max_vals = smat.max(axis=1)
+#         index_vals = smat.argmax(axis=1)
+
+#         row_ids = np.arange(w.shape[0])
+#         _sel_w = w[row_ids, index_vals]  # 保留原脚本结构，虽然最终未参与计算
+
+#         norm_w = self.compute_normalized_reweights(max_vals, ma=0.5, se=0.3)
+#         final_val = np.sum(np.array(norm_w) * max_vals)
+#         final_val = round(float(final_val), 2)
+#         return final_val
+
+#     def merge_weights(self, cw, lw):
+#         return (cw[:, np.newaxis] + lw) / 2
+
+
+# class GraphRanker:
+#     def __init__(self, threshold=0.1, alpha=0.85):
+#         self.threshold = threshold
+#         self.alpha = alpha
+
+#     def compute_smat(self, emb):
+#         return cosine_similarity(emb)
+
+#     def create_graph(self, sm):
+#         g = nx.Graph()
+#         n = sm.shape[0]
+#         g.add_nodes_from(range(n))
+#         for i in range(n):
+#             for j in range(i + 1, n):
+#                 if sm[i][j] >= self.threshold:
+#                     g.add_edge(i, j, weight=float(sm[i][j]))
+#         return g
+
+#     def rank(self, g):
+#         return nx.pagerank(g, alpha=self.alpha, weight="weight")
+
+#     def scale(self, w):
+#         arr = np.array(list(w.values()), dtype=np.float32)
+#         tot = arr.sum()
+#         if tot == 0:
+#             raise ValueError("Zero sum.")
+#         return arr / tot
+
+#     def process(self, emb):
+#         sm = self.compute_smat(emb)
+#         g = self.create_graph(sm)
+#         r = self.rank(g)
+#         return self.scale(r)
+
+
+# def score_semantic_eval(
+#     candidate_text: str,
+#     reference_text: str,
+#     embedding_model: str = EMBED_MODEL,
+# ) -> float:
+#     """
+#     按照原脚本的计算分数逻辑计算语义匹配分数。
+#     仅替换 embedding 模型为本地 sentence-transformers 模型，
+#     不修改原有匹配分数计算规则。
+
+#     参数:
+#         candidate_text: 候选文本
+#         reference_text: 参考文本
+#         embedding_model: 本地 sentence-transformers 模型名或路径
+
+#     返回:
+#         float: 最终语义匹配分数，保留两位小数
+#     """
+#     seg = TextSegmenter()
+#     vsim = LocalVectorSimilarity(embedding_model=embedding_model)
+#     gproc = GraphRanker()
+
+#     ref_sents = seg.refine(reference_text)
+#     cand_sents = seg.refine(candidate_text)
+
+#     if not ref_sents or not cand_sents:
+#         raise ValueError("Text segmentation produced no valid sentences.")
+
+#     ref_vector_data = vsim.package(ref_sents, "reference")
+#     cand_vector_data = vsim.package(cand_sents, "candidate")
+
+#     if ref_vector_data["matrix"] is None or cand_vector_data["matrix"] is None:
+#         raise ValueError("Failed to build embedding matrices.")
+
+#     lw = gproc.process(ref_vector_data["matrix"])
+#     cw = gproc.process(cand_vector_data["matrix"])
+#     wmat = vsim.merge_weights(cw, lw)
+
+#     result = vsim.finalize(cand_vector_data, ref_vector_data, wmat)
+#     if result is None:
+#         raise ValueError("Semantic evaluation failed.")
+
+#     return result
+
+
+# if __name__ == "__main__":
+#     text1 = "Amoxicillin is a type of antibiotic. It is mainly used to treat a variety of bacterial infections. For example, it can be used to treat infections of the middle ear, sinuses, throat, lungs, urinary tract and skin. It works by stopping the growth of bacteria. However, it is important to note that it is only effective against bacterial infections and not viral infections."
+#     text2 = "Amoxicillin is a penicillin - like antibiotic. It works by stopping the growth of bacteria. It is used to treat a variety of bacterial infections, such as infections of the middle ear, tonsils, throat, urinary tract, skin, and respiratory tract (like pneumonia, bronchitis). However, it is ineffective against viral infections."
+
+#     text3 = "Shanghai captivates me with its seamless blend of history and modernity. Strolling along the Bund at dusk, watching the neon-lit skyline of Pudong reflect on the Huangpu River, fills me with awe. The city’s energy is palpable—a dynamic rhythm that pulses through its bustling streets, art deco buildings, and hidden lanes filled with local snacks like xiaolongbao. Whether exploring the timeless charm of Yuyuan Garden or marveling at the futuristic towers of Lujiazui, Shanghai never fails to inspire. It’s a place where tradition and innovation coexist, creating a magnetic allure that feels like home."
+#     text4 = "I’m deeply enamored with Shanghai’s ability to bridge past and present. The Bund’s colonial architecture stands in striking contrast to the glowing skyscrapers of Pudong, a visual symphony of eras. There’s an indescribable vitality here—a buzz in the air from the crowds, the clatter of woks in street-side kitchens, and the hum of ambition in its tech-driven districts. From sipping tea in a century-old teahouse to losing myself in the neon-drenched chaos of Nanjing Road, Shanghai offers a mosaic of experiences. It’s a city that embraces change while honoring its roots, and this duality is what makes my heart swell with admiration every time I wander its streets."
+
+#     text5 = "Living in the city is an exhilarating adventure filled with endless possibilities. The vibrant energy of bustling streets, diverse cultures, and innovative opportunities invigorate the spirit. Every corner holds a new experience—a cozy café tucked between skyscrapers, a hidden gallery showcasing local art, or a lively festival uniting strangers. Public transport connects you to the world, while careers in cutting-edge fields thrive here. Though chaos sometimes lingers, it’s the chaos of progress, of humanity collaborating and dreaming aloud. The city is a living, breathing testament to what we can achieve when we embrace curiosity and connection."
+#     text6 = "Urban existence feels like a relentless marathon, where peace is a luxury few can afford. The constant roar of traffic, the suffocating crowds, and the pressure to 'keep up’ drain the soul. Skyscrapers cast long shadows over parks once meant for tranquility, replacing greenery with concrete. Relationships grow superficial, forged in hurried elevator rides or digital screens rather than genuine dialogue. Opportunities? They exist, but at the cost of sanity—long commutes, skyrocketing costs, and a sense of being just another cog in a machine. The city promises progress but delivers isolation, a cacophony of noise drowning out the quiet moments that make life meaningful."
+
+#     score = score_semantic_eval(text1, text2)
+#     print(score)

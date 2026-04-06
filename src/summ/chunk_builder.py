@@ -86,6 +86,7 @@ def _build_base_chunks_from_blocks(
                 text=text,
                 token_count=token_count,
                 extraction_records=list(block.extraction_records),
+                source_block_indices=[block.block_idx],
             )
         )
 
@@ -119,12 +120,14 @@ def _merge_small_chunks(
     while i < len(base_chunks):
         current_texts = [base_chunks[i].text]
         current_records = list(base_chunks[i].extraction_records)
+        current_block_indices = list(base_chunks[i].source_block_indices)
         current_token_count = base_chunks[i].token_count
 
         j = i + 1
         while current_token_count < min_tokens and j < len(base_chunks):
             current_texts.append(base_chunks[j].text)
             current_records.extend(base_chunks[j].extraction_records)
+            current_block_indices.extend(base_chunks[j].source_block_indices)
             current_token_count = count_tokens("\n\n".join(current_texts))
             j += 1
 
@@ -134,6 +137,7 @@ def _merge_small_chunks(
                 text="\n\n".join(current_texts).strip(),
                 token_count=current_token_count,
                 extraction_records=_deduplicate_extraction_records(current_records),
+                source_block_indices=_deduplicate_block_indices(current_block_indices),
             )
         )
 
@@ -189,6 +193,7 @@ def split_oversized_chunk_with_overlap(
                     text=sub_text,
                     token_count=count_tokens(sub_text),
                     extraction_records=list(chunk.extraction_records),
+                    source_block_indices=list(chunk.source_block_indices),
                 )
             )
 
@@ -222,5 +227,22 @@ def _deduplicate_extraction_records(
 
         seen.add(key)
         results.append(record)
+
+    return results
+
+
+def _deduplicate_block_indices(block_indices: list[int]) -> list[int]:
+    if not block_indices:
+        return []
+
+    results: list[int] = []
+    seen: set[int] = set()
+
+    for block_idx in block_indices:
+        if block_idx in seen:
+            continue
+
+        seen.add(block_idx)
+        results.append(block_idx)
 
     return results

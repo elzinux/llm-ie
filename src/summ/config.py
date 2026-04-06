@@ -32,7 +32,7 @@ class SelectionConfig:
     """
 
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
-    fuzzy_threshold: int = 75
+    fuzzy_threshold: int = 70
     semantic_threshold: float = 0.60
 
 
@@ -103,13 +103,13 @@ class CheckConfig:
     - semantic_eval_weight: 全局覆盖（事实一致性）的权重
     """
 
-    coverage_threshold: float = 0.90
-    relation_threshold: float = 0.75
+    coverage_threshold: float = 0.80
+    relation_threshold: float = 0.70
 
-    keyword_fuzzy_threshold: int = 75
-    sentence_semantic_threshold: float = 0.65
+    keyword_fuzzy_threshold: int = 70
+    sentence_semantic_threshold: float = 0.60
 
-    overall_threshold: float = 0.80
+    overall_threshold: float = 0.70
 
     coverage_weight: float = 0.4
     relation_weight: float = 0.3
@@ -131,7 +131,6 @@ class PipelineConfig:
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
     summary: RetryConfig = field(default_factory=RetryConfig)
     check: CheckConfig = field(default_factory=CheckConfig)
-    keep_intermediate: bool = True
 
 
 def build_default_config() -> PipelineConfig:
@@ -152,7 +151,7 @@ def build_default_config() -> PipelineConfig:
         ),
         selection=SelectionConfig(
             embedding_model_name="sentence-transformers/all-MiniLM-L6-v2",
-            fuzzy_threshold=75,
+            fuzzy_threshold=70,
             semantic_threshold=0.60,
         ),
         connection=ConnectionConfig(
@@ -170,10 +169,9 @@ def build_default_config() -> PipelineConfig:
             max_retry_times=2,
         ),
         check=CheckConfig(
-            coverage_threshold=0.90,
-            relation_threshold=0.75,
-            keyword_fuzzy_threshold=75,
-            sentence_semantic_threshold=0.65,
+            coverage_threshold=0.80,
+            relation_threshold=0.70,
+            keyword_fuzzy_threshold=70,
+            sentence_semantic_threshold=0.60,
         ),
-        keep_intermediate=True,
     )
