@@ -22,6 +22,13 @@ def run_summary_for_md_file(
     extraction_max_retries: int = 2,
     output_path: str | Path | None = None,
 ) -> list[dict[str, Any]]:
+    """
+    对单个 Markdown 文件执行摘要实验。
+
+    返回值按独立 summary chunk 组织：
+    - 每个 prepared_chunk 对应一条结果
+    - 保存时直接写出 chunk 级 records
+    """
     md_path = Path(md_path)
     input_document = read_md_file(str(md_path))
     pipeline_config = config or build_default_config()
@@ -34,7 +41,7 @@ def run_summary_for_md_file(
         extraction_max_retries=extraction_max_retries,
     )
 
-    summary_results = build_summary_result_records(
+    chunk_level_results = build_summary_result_records(
         input_document=input_document,
         pipeline_result=pipeline_result,
     )
@@ -44,9 +51,9 @@ def run_summary_for_md_file(
         if output_path is not None
         else build_summary_output_path(md_path)
     )
-    save_summary_results(target_output_path, summary_results)
+    save_summary_results(target_output_path, chunk_level_results)
 
-    return summary_results
+    return chunk_level_results
 
 
 def process_md_folder(
@@ -71,9 +78,9 @@ def process_md_folder(
     print(f"共找到 {len(md_files)} 个 Markdown 文件。")
     print(f"输出目录: {output_dir.resolve()}")
 
-    all_results: list[dict[str, Any]] = []
+    all_chunk_results: list[dict[str, Any]] = []
     for md_file in md_files:
-        result = run_summary_for_md_file(
+        chunk_results = run_summary_for_md_file(
             md_path=md_file,
             config=config,
             extraction_model_config=extraction_model_config,
@@ -81,11 +88,11 @@ def process_md_folder(
             extraction_max_retries=extraction_max_retries,
             output_path=build_summary_output_path(md_file, output_dir=output_dir),
         )
-        all_results.extend(result)
-        print(f"文件处理完成: {md_file.name}")
+        all_chunk_results.extend(chunk_results)
+        print(f"文件处理完成: {md_file.name}; chunk 数: {len(chunk_results)}")
 
     print("全部文件处理完成。")
-    return all_results
+    return all_chunk_results
 
 
 SINGLE_FILE_PATH = Path(r"data/raw/test/3.md")

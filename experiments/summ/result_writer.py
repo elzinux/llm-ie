@@ -60,12 +60,16 @@ def build_summary_result_records(
     input_document: InputDocument,
     pipeline_result: SummaryPipelineResult,
 ) -> list[dict[str, Any]]:
+    """
+    按独立 summary chunk 构造实验输出结果。
+    """
     chunk_result_map = {
         chunk_result.prepared_chunk_id: chunk_result
         for chunk_result in pipeline_result.chunk_results
     }
     block_result_map = {
-        block_result.block_idx: block_result for block_result in pipeline_result.block_results
+        block_result.block_idx: block_result
+        for block_result in pipeline_result.block_results
     }
 
     records: list[dict[str, Any]] = []
@@ -74,6 +78,8 @@ def build_summary_result_records(
         chunk_result = chunk_result_map.get(prepared_chunk.prepared_chunk_id)
         records.append(
             {
+                "prepared_chunk_id": prepared_chunk.prepared_chunk_id,
+                "source_block_indices": list(prepared_chunk.source_block_indices),
                 "chunck": prepared_chunk.text,
                 "summary": chunk_result.summary if chunk_result is not None else "",
                 "accept": bool(
@@ -171,7 +177,6 @@ def _build_summ_score_list(chunk_result: SummaryChunkResult | None) -> list[floa
     check_result = _get_chunk_check_result(chunk_result)
     return [
         float(check_result.information_coverage),
-        float(check_result.relation_score),
         float(check_result.semantic_eval_score),
         float(check_result.overall_score),
     ]
