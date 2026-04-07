@@ -6,6 +6,8 @@ from sentence_transformers import SentenceTransformer, util
 from src.summ.config import CheckConfig
 from src.summ.schemas import CheckResult, ExtractionRecord, PreparedSummaryChunk
 from src.summ.semantic_eval.scorer import score_semantic_eval
+from src.summ.splitter import split_paragraph_into_sentences
+from src.utils.normalize_text import normalize_text
 
 _EMBEDDING_MODEL_CACHE: dict[str, SentenceTransformer] = {}
 _DEFAULT_EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -122,29 +124,41 @@ def _compute_keyword_coverage(
 ) -> float:
     """
     计算关键词覆盖率。
+
+    逻辑：
+    - 先对关键词和摘要做归一化
+    - 关键词先做词面包含判断
+    - 若未命中，再做模糊匹配
+    - 达到阈值则视为该关键词被覆盖
     """
     if not keywords:
         return 0.0
 
-    summary_lower = summary.lower()
+    summary_norm = normalize_text(summary)
+    if not summary_norm:
+        return 0.0
+
+    normalized_keywords = []
+    for keyword in keywords:
+        keyword_norm = normalize_text(keyword)
+        if keyword_norm:
+            normalized_keywords.append(keyword_norm)
+
+    if not normalized_keywords:
+        return 0.0
+
     covered = 0
 
-    for keyword in keywords:
-        keyword = keyword.strip()
-        if not keyword:
-            continue
-
-        keyword_lower = keyword.lower()
-
-        if keyword_lower in summary_lower:
+    for keyword_norm in normalized_keywords:
+        if keyword_norm in summary_norm:
             covered += 1
             continue
 
-        fuzzy_score = fuzz.partial_ratio(keyword_lower, summary_lower)
+        fuzzy_score = fuzz.partial_ratio(keyword_norm, summary_norm)
         if fuzzy_score >= fuzzy_threshold:
             covered += 1
 
-    return covered / len(keywords)
+    return covered / len(normalized_keywords)
 
 
 def _compute_key_sentence_coverage(
@@ -156,25 +170,45 @@ def _compute_key_sentence_coverage(
     计算关键句覆盖率。
 
     逻辑：
-    - 将关键句逐条与摘要做语义相似度比对
-    - 满足阈值则视为被覆盖
+    - 先对关键句和摘要句做归一化
+    - 每条关键句先做词面包含判断
+    - 若未命中，再与摘要句集合计算语义相似度
+    - 关键句与任一摘要句的最大相似度达到阈值，则视为被覆盖
     """
     if not key_sentences:
         return 0.0
 
-    summary_sentences = _simple_split_sentences(summary)
+    summary_sentences = split_paragraph_into_sentences(summary)
     if not summary_sentences:
         summary_sentences = [summary]
+
+    normalized_key_sentences = []
+    for s in key_sentences:
+        norm = normalize_text(s)
+        if norm:
+            normalized_key_sentences.append(norm)
+
+    if not normalized_key_sentences:
+        return 0.0
+
+    normalized_summary_sentences = []
+    for s in summary_sentences:
+        norm = normalize_text(s)
+        if norm:
+            normalized_summary_sentences.append(norm)
+
+    if not normalized_summary_sentences:
+        return 0.0
 
     model = _get_embedding_model(_DEFAULT_EMBEDDING_MODEL_NAME)
 
     key_embeddings = model.encode(
-        key_sentences,
+        normalized_key_sentences,
         convert_to_tensor=True,
         normalize_embeddings=True,
     )
     summary_embeddings = model.encode(
-        summary_sentences,
+        normalized_summary_sentences,
         convert_to_tensor=True,
         normalize_embeddings=True,
     )
@@ -182,12 +216,18 @@ def _compute_key_sentence_coverage(
     similarity_matrix = util.cos_sim(key_embeddings, summary_embeddings)
 
     covered = 0
-    for i in range(len(key_sentences)):
+    summary_norm = " ".join(normalized_summary_sentences)
+
+    for i, key_sentence in enumerate(normalized_key_sentences):
+        if key_sentence in summary_norm:
+            covered += 1
+            continue
+
         best_similarity = float(similarity_matrix[i].max().item())
         if best_similarity >= semantic_threshold:
             covered += 1
 
-    return covered / len(key_sentences)
+    return covered / len(normalized_key_sentences)
 
 
 def _collect_keywords(extraction_records: list[ExtractionRecord]) -> list[str]:
