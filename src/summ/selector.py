@@ -42,11 +42,11 @@ def select_key_sentences(
         return []
 
     if not isinstance(extraction_record, ExtractionRecord):
-        return sentences
+        return []
 
     clues = _build_clues(extraction_record)
     if not clues:
-        return sentences
+        return []
 
     # 第一步：直接匹配
     for sentence in sentences:

@@ -6,8 +6,6 @@ from sentence_transformers import SentenceTransformer, util
 from src.summ.config import CheckConfig
 from src.summ.schemas import CheckResult, ExtractionRecord, PreparedSummaryChunk
 from src.summ.semantic_eval.scorer import score_semantic_eval
-from src.summ.splitter import split_paragraph_into_sentences
-from src.utils.normalize_text import normalize_text
 
 _EMBEDDING_MODEL_CACHE: dict[str, SentenceTransformer] = {}
 _DEFAULT_EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -44,20 +42,14 @@ def check_summary_quality(
         )
 
     extraction_records = source_chunk.extraction_records
-    if not extraction_records:
-        return CheckResult(
-            passed=True,
-            information_coverage=1.0,
-            semantic_eval_score=1.0,
-            overall_score=1.0,
+    information_coverage = 1.0
+    if extraction_records:
+        information_coverage = compute_information_coverage(
+            extraction_records=extraction_records,
+            summary=summary,
+            keyword_fuzzy_threshold=config.keyword_fuzzy_threshold,
+            sentence_semantic_threshold=config.sentence_semantic_threshold,
         )
-
-    information_coverage = compute_information_coverage(
-        extraction_records=extraction_records,
-        summary=summary,
-        keyword_fuzzy_threshold=config.keyword_fuzzy_threshold,
-        sentence_semantic_threshold=config.sentence_semantic_threshold,
-    )
 
     semantic_eval_score = score_semantic_eval(
         candidate_text=summary,
@@ -120,7 +112,7 @@ def compute_information_coverage(
     if key_sentences:
         return key_sentence_coverage
 
-    return 0.0
+    return 1.0
 
 
 def _compute_keyword_coverage(
@@ -134,27 +126,25 @@ def _compute_keyword_coverage(
     if not keywords:
         return 0.0
 
-    summary_norm = normalize_text(summary)
-    total = 1
+    summary_lower = summary.lower()
     covered = 0
 
     for keyword in keywords:
-        keyword = normalize_text(keyword)
+        keyword = keyword.strip()
         if not keyword:
             continue
 
-        total += 1
         keyword_lower = keyword.lower()
 
-        if keyword_lower in summary_norm:
+        if keyword_lower in summary_lower:
             covered += 1
             continue
 
-        fuzzy_score = fuzz.partial_ratio(keyword_lower, summary_norm)
+        fuzzy_score = fuzz.partial_ratio(keyword_lower, summary_lower)
         if fuzzy_score >= fuzzy_threshold:
             covered += 1
 
-    return covered / total
+    return covered / len(keywords)
 
 
 def _compute_key_sentence_coverage(
@@ -172,41 +162,32 @@ def _compute_key_sentence_coverage(
     if not key_sentences:
         return 0.0
 
-    summary_sentences = split_paragraph_into_sentences(summary)
+    summary_sentences = _simple_split_sentences(summary)
     if not summary_sentences:
         summary_sentences = [summary]
-
-    normalized_key_sentences = [
-        normalize_text(s) for s in key_sentences if normalize_text(s)
-    ]
-    normalized_summary_sentences = [
-        normalize_text(s) for s in summary_sentences if normalize_text(s)
-    ]
 
     model = _get_embedding_model(_DEFAULT_EMBEDDING_MODEL_NAME)
 
     key_embeddings = model.encode(
-        normalized_key_sentences,
+        key_sentences,
         convert_to_tensor=True,
         normalize_embeddings=True,
     )
     summary_embeddings = model.encode(
-        normalized_summary_sentences,
+        summary_sentences,
         convert_to_tensor=True,
         normalize_embeddings=True,
     )
 
     similarity_matrix = util.cos_sim(key_embeddings, summary_embeddings)
 
-    total = 1
     covered = 0
     for i in range(len(key_sentences)):
         best_similarity = float(similarity_matrix[i].max().item())
         if best_similarity >= semantic_threshold:
             covered += 1
-        total += 1
 
-    return covered / total
+    return covered / len(key_sentences)
 
 
 def _collect_keywords(extraction_records: list[ExtractionRecord]) -> list[str]:
@@ -253,6 +234,30 @@ def _collect_key_sentences(extraction_records: list[ExtractionRecord]) -> list[s
             results.append(text)
 
     return results
+
+
+def _simple_split_sentences(text: str) -> list[str]:
+    """
+    简单切句，不做复杂处理。
+    """
+    text = text.strip()
+    if not text:
+        return []
+
+    separators = [". ", "? ", "! ", "\n"]
+    sentences = [text]
+
+    for sep in separators:
+        new_sentences: list[str] = []
+        for sentence in sentences:
+            parts = sentence.split(sep)
+            for part in parts:
+                part = part.strip()
+                if part:
+                    new_sentences.append(part)
+        sentences = new_sentences
+
+    return sentences
 
 
 def _get_embedding_model(model_name: str) -> SentenceTransformer:

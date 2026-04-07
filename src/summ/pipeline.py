@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.summ.checker import check_summary_quality
+from src.summ.checker_flow import check_summary_quality_with_flow
 from src.summ.chunk_builder import build_summary_chunks
 from src.summ.config import PipelineConfig
 from src.summ.connector import connect_selected_sentences, merge_connected_chunks_text
-from src.summ.extractor import extract_key_elements
+from src.summ.extractor_flow import extract_key_elements_with_flow
 from src.summ.schemas import (
     BlockProcessResult,
     CheckResult,
@@ -66,6 +66,7 @@ def run_summary_pipeline(
         block_results=block_results,
         config=config.chunk,
     )
+    chapter_chunk_counts = _build_chapter_chunk_counts(prepared_chunks)
 
     chunk_results: list[SummaryChunkResult] = []
     final_summaries: list[str] = []
@@ -81,6 +82,7 @@ def run_summary_pipeline(
             config=config,
             summary_model_config=summary_model_config,
             location_label=location_label,
+            chapter_chunk_counts=chapter_chunk_counts,
         )
         chunk_results.append(chunk_result)
 
@@ -118,12 +120,14 @@ def process_input_item(
 
     original_text = item.text or ""
 
-    raw_extraction_record = extract_key_elements(
+    extraction_record = extract_key_elements_with_flow(
         text=original_text,
+        chunk_config=config.chunk,
+        split_config=config.split,
         model_config=extraction_model_config,
         max_retries=extraction_max_retries,
     )
-    extraction_record = _coerce_extraction_record(raw_extraction_record)
+    extraction_record = _coerce_extraction_record(extraction_record)
 
     sentences = split_text_into_sentences(
         text=original_text,
@@ -163,6 +167,7 @@ def summarize_and_check_chunk(
     config: PipelineConfig,
     summary_model_config: dict[str, Any] | None = None,
     location_label: str = "",
+    chapter_chunk_counts: dict[tuple[int, ...], int] | None = None,
 ) -> SummaryChunkResult:
     """
     对单个 PreparedSummaryChunk 执行摘要和检查。
@@ -188,6 +193,11 @@ def summarize_and_check_chunk(
             retry_reasons=[],
         )
 
+    chapter_chunk_count = _get_chapter_chunk_count(
+        prepared_chunk=prepared_chunk,
+        chapter_chunk_counts=chapter_chunk_counts,
+    )
+
     max_retry_times = config.summary.max_retry_times
     last_summary = ""
     last_check_result = build_failed_check_result(status="summary_check_failed")
@@ -202,10 +212,11 @@ def summarize_and_check_chunk(
         summary = raw_summary if isinstance(raw_summary, str) else ""
         last_summary = summary
 
-        check_result = check_summary_quality(
-            source_chunk=prepared_chunk,
+        check_result = check_summary_quality_with_flow(
+            prepared_chunk=prepared_chunk,
             summary=summary,
             config=config.check,
+            chapter_chunk_count=chapter_chunk_count,
         )
         check_result.status = (
             "passed" if check_result.passed else "summary_check_failed"
@@ -331,6 +342,32 @@ def _format_check_failure_reasons(
             )
 
     return "; ".join(reason_parts)
+
+
+def _build_chapter_chunk_counts(
+    prepared_chunks: list[PreparedSummaryChunk],
+) -> dict[tuple[int, ...], int]:
+    """
+    统计每个章节来源对应的 summary chunk 数量。
+    """
+    results: dict[tuple[int, ...], int] = {}
+
+    for prepared_chunk in prepared_chunks:
+        key = tuple(getattr(prepared_chunk, "source_block_indices", None) or [])
+        results[key] = results.get(key, 0) + 1
+
+    return results
+
+
+def _get_chapter_chunk_count(
+    prepared_chunk: PreparedSummaryChunk,
+    chapter_chunk_counts: dict[tuple[int, ...], int] | None,
+) -> int:
+    if not chapter_chunk_counts:
+        return 1
+
+    key = tuple(getattr(prepared_chunk, "source_block_indices", None) or [])
+    return chapter_chunk_counts.get(key, 1)
 
 
 def _build_chunk_location_label(
