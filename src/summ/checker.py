@@ -6,6 +6,8 @@ from sentence_transformers import SentenceTransformer, util
 from src.summ.config import CheckConfig
 from src.summ.schemas import CheckResult, ExtractionRecord, PreparedSummaryChunk
 from src.summ.semantic_eval.scorer import score_semantic_eval
+from src.summ.splitter import split_paragraph_into_sentences
+from src.utils.normalize_text import normalize_text
 
 _EMBEDDING_MODEL_CACHE: dict[str, SentenceTransformer] = {}
 _DEFAULT_EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -21,14 +23,15 @@ def check_summary_quality(
 
     当前检查逻辑保持简单：
     1. 用关键词和关键句估计 information_coverage
-    2. 用关键句与摘要的整体语义相似度估计 relation_score
+    2. 用摘要与原文的语义覆盖估计 semantic_eval_score
     3. 根据阈值判断是否通过
     """
     if not isinstance(source_chunk, PreparedSummaryChunk):
         return CheckResult(
             passed=False,
             information_coverage=0.0,
-            relation_score=0.0,
+            semantic_eval_score=0.0,
+            overall_score=0.0,
         )
 
     summary = summary.strip()
@@ -36,7 +39,8 @@ def check_summary_quality(
         return CheckResult(
             passed=False,
             information_coverage=0.0,
-            relation_score=0.0,
+            semantic_eval_score=0.0,
+            overall_score=0.0,
         )
 
     extraction_records = source_chunk.extraction_records
@@ -44,7 +48,8 @@ def check_summary_quality(
         return CheckResult(
             passed=True,
             information_coverage=1.0,
-            relation_score=1.0,
+            semantic_eval_score=1.0,
+            overall_score=1.0,
         )
 
     information_coverage = compute_information_coverage(
@@ -54,32 +59,25 @@ def check_summary_quality(
         sentence_semantic_threshold=config.sentence_semantic_threshold,
     )
 
-    relation_score = compute_relation_score(
-        extraction_records=extraction_records,
-        summary=summary,
-    )
-
     semantic_eval_score = score_semantic_eval(
-        candidate_text=summary, reference_text=source_chunk.text
+        candidate_text=summary,
+        reference_text=source_chunk.text,
     )
 
     overall_score = _compute_overall_score(
         information_coverage=information_coverage,
-        relation_score=relation_score,
         semantic_eval_score=semantic_eval_score,
         config=config,
     )
 
     passed = (
         information_coverage >= config.coverage_threshold
-        and relation_score >= config.relation_threshold
         and overall_score >= config.overall_threshold
     )
 
     return CheckResult(
         passed=passed,
         information_coverage=information_coverage,
-        relation_score=relation_score,
         semantic_eval_score=semantic_eval_score,
         overall_score=overall_score,
     )
@@ -125,40 +123,6 @@ def compute_information_coverage(
     return 0.0
 
 
-def compute_relation_score(
-    extraction_records: list[ExtractionRecord],
-    summary: str,
-) -> float:
-    """
-    估计摘要对重要信息关系的保持程度。
-
-    当前 schema 没有显式的结构化关系字段，
-    因此这里只做一个简单近似：
-    - 将所有 key_sentences 合并为参考文本
-    - 计算参考文本与摘要的整体语义相似度
-
-    返回 0~1 之间的 float。
-    """
-    key_sentences = _collect_key_sentences(extraction_records)
-    if not key_sentences:
-        return 0.0
-
-    reference_text = " ".join(key_sentences).strip()
-    if not reference_text or not summary.strip():
-        return 0.0
-
-    model = _get_embedding_model(_DEFAULT_EMBEDDING_MODEL_NAME)
-
-    embeddings = model.encode(
-        [reference_text, summary],
-        convert_to_tensor=True,
-        normalize_embeddings=True,
-    )
-
-    score = float(util.cos_sim(embeddings[0], embeddings[1]).item())
-    return _clamp_score(score)
-
-
 def _compute_keyword_coverage(
     keywords: list[str],
     summary: str,
@@ -170,25 +134,27 @@ def _compute_keyword_coverage(
     if not keywords:
         return 0.0
 
-    summary_lower = summary.lower()
+    summary_norm = normalize_text(summary)
+    total = 1
     covered = 0
 
     for keyword in keywords:
-        keyword = keyword.strip()
+        keyword = normalize_text(keyword)
         if not keyword:
             continue
 
+        total += 1
         keyword_lower = keyword.lower()
 
-        if keyword_lower in summary_lower:
+        if keyword_lower in summary_norm:
             covered += 1
             continue
 
-        fuzzy_score = fuzz.partial_ratio(keyword_lower, summary_lower)
+        fuzzy_score = fuzz.partial_ratio(keyword_lower, summary_norm)
         if fuzzy_score >= fuzzy_threshold:
             covered += 1
 
-    return covered / len(keywords)
+    return covered / total
 
 
 def _compute_key_sentence_coverage(
@@ -206,32 +172,41 @@ def _compute_key_sentence_coverage(
     if not key_sentences:
         return 0.0
 
-    summary_sentences = _simple_split_sentences(summary)
+    summary_sentences = split_paragraph_into_sentences(summary)
     if not summary_sentences:
         summary_sentences = [summary]
+
+    normalized_key_sentences = [
+        normalize_text(s) for s in key_sentences if normalize_text(s)
+    ]
+    normalized_summary_sentences = [
+        normalize_text(s) for s in summary_sentences if normalize_text(s)
+    ]
 
     model = _get_embedding_model(_DEFAULT_EMBEDDING_MODEL_NAME)
 
     key_embeddings = model.encode(
-        key_sentences,
+        normalized_key_sentences,
         convert_to_tensor=True,
         normalize_embeddings=True,
     )
     summary_embeddings = model.encode(
-        summary_sentences,
+        normalized_summary_sentences,
         convert_to_tensor=True,
         normalize_embeddings=True,
     )
 
     similarity_matrix = util.cos_sim(key_embeddings, summary_embeddings)
 
+    total = 1
     covered = 0
     for i in range(len(key_sentences)):
         best_similarity = float(similarity_matrix[i].max().item())
         if best_similarity >= semantic_threshold:
             covered += 1
+        total += 1
 
-    return covered / len(key_sentences)
+    return covered / total
 
 
 def _collect_keywords(extraction_records: list[ExtractionRecord]) -> list[str]:
@@ -280,30 +255,6 @@ def _collect_key_sentences(extraction_records: list[ExtractionRecord]) -> list[s
     return results
 
 
-def _simple_split_sentences(text: str) -> list[str]:
-    """
-    简单切句，不做复杂处理。
-    """
-    text = text.strip()
-    if not text:
-        return []
-
-    separators = [". ", "? ", "! ", "\n"]
-    sentences = [text]
-
-    for sep in separators:
-        new_sentences: list[str] = []
-        for sentence in sentences:
-            parts = sentence.split(sep)
-            for part in parts:
-                part = part.strip()
-                if part:
-                    new_sentences.append(part)
-        sentences = new_sentences
-
-    return sentences
-
-
 def _get_embedding_model(model_name: str) -> SentenceTransformer:
     """
     获取并缓存语义模型。
@@ -313,26 +264,17 @@ def _get_embedding_model(model_name: str) -> SentenceTransformer:
     return _EMBEDDING_MODEL_CACHE[model_name]
 
 
-def _clamp_score(score: float) -> float:
-    """
-    将分数限制到 [0, 1]。
-    """
-    if score < 0.0:
-        return 0.0
-    if score > 1.0:
-        return 1.0
-    return score
-
-
 def _compute_overall_score(
     information_coverage: float,
-    relation_score: float,
     semantic_eval_score: float,
     config: CheckConfig,
 ) -> float:
+    total_weight = config.coverage_weight + config.semantic_eval_weight
+    if total_weight <= 0:
+        return 0.0
+
     score = (
         information_coverage * config.coverage_weight
-        + relation_score * config.relation_weight
         + semantic_eval_score * config.semantic_eval_weight
-    )
+    ) / total_weight
     return round(score, 4)

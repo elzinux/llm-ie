@@ -18,9 +18,10 @@ def build_summary_chunks(
     根据 block 级处理结果构建最终的摘要输入块。
 
     处理逻辑：
-    1. 先把每个 block 的 connected_chunks 合并成一个基础块
-    2. 若基础块过短，则继续顺序拼接后续基础块
-    3. 若拼接后的块过长，则按 token 拆分并保留 overlap
+    1. 默认以章节为边界，将每个 block 构造成章节块
+    2. 大章节只在章节内切分，并保留 overlap
+    3. 小章节优先独立保留，仅在满足条件时与下一完整章节合并一次
+    4. 不做链式扩展
 
     参数:
         block_results: 每个原始文本块的处理结果
@@ -32,35 +33,17 @@ def build_summary_chunks(
     if not block_results:
         return []
 
-    base_chunks = _build_base_chunks_from_blocks(block_results)
-    if not base_chunks:
+    chapter_chunks = _build_base_chunks_from_blocks(block_results)
+    if not chapter_chunks:
         return []
 
-    merged_chunks = _merge_small_chunks(
-        base_chunks=base_chunks,
-        min_tokens=config.llm_text_min_tokens,
+    final_chunks = _build_final_chunks_by_chapter_boundary(
+        chapter_chunks=chapter_chunks,
+        config=config,
     )
 
-    final_chunks: list[PreparedSummaryChunk] = []
-    next_chunk_id = 0
-
-    for chunk in merged_chunks:
-        if chunk.token_count <= config.llm_text_max_tokens:
-            chunk.prepared_chunk_id = next_chunk_id
-            final_chunks.append(chunk)
-            next_chunk_id += 1
-            continue
-
-        split_chunks = split_oversized_chunk_with_overlap(
-            chunk=chunk,
-            max_tokens=config.llm_text_max_tokens,
-            overlap_tokens=config.overlap_tokens,
-        )
-
-        for split_chunk in split_chunks:
-            split_chunk.prepared_chunk_id = next_chunk_id
-            final_chunks.append(split_chunk)
-            next_chunk_id += 1
+    for chunk_id, chunk in enumerate(final_chunks):
+        chunk.prepared_chunk_id = chunk_id
 
     return final_chunks
 
@@ -69,7 +52,7 @@ def _build_base_chunks_from_blocks(
     block_results: list[BlockProcessResult],
 ) -> list[PreparedSummaryChunk]:
     """
-    将每个 block 的 connected_chunks 合并为一个基础摘要块。
+    将每个 block 的 connected_chunks 合并为一个基础章节块。
     """
     results: list[PreparedSummaryChunk] = []
 
@@ -93,6 +76,57 @@ def _build_base_chunks_from_blocks(
     return results
 
 
+def _build_final_chunks_by_chapter_boundary(
+    chapter_chunks: list[PreparedSummaryChunk],
+    config: ChunkConfig,
+) -> list[PreparedSummaryChunk]:
+    """
+    以章节为边界构建最终摘要块。
+    """
+    if not chapter_chunks:
+        return []
+
+    results: list[PreparedSummaryChunk] = []
+    i = 0
+
+    while i < len(chapter_chunks):
+        current_chunk = chapter_chunks[i]
+
+        if current_chunk.token_count > config.llm_text_max_tokens:
+            results.extend(
+                split_oversized_chunk_with_overlap(
+                    chunk=current_chunk,
+                    max_tokens=config.llm_text_max_tokens,
+                    overlap_tokens=config.overlap_tokens,
+                    split_window_tokens=(
+                        config.llm_text_min_tokens + config.overlap_tokens
+                    ),
+                )
+            )
+            i += 1
+            continue
+
+        next_chunk = chapter_chunks[i + 1] if i + 1 < len(chapter_chunks) else None
+        if _should_merge_short_chunk_with_next(
+            current_chunk=current_chunk,
+            next_chunk=next_chunk,
+            config=config,
+        ):
+            results.append(
+                _merge_adjacent_chunks_once(
+                    left_chunk=current_chunk,
+                    right_chunk=next_chunk,  # type: ignore
+                )
+            )
+            i += 2
+            continue
+
+        results.append(current_chunk)
+        i += 1
+
+    return results
+
+
 def _merge_connected_chunks_text(chunks: list[ConnectedChunk]) -> str:
     """
     将一个 block 内的多个 connected chunk 合并成文本。
@@ -104,52 +138,65 @@ def _merge_connected_chunks_text(chunks: list[ConnectedChunk]) -> str:
     return "\n\n".join(parts).strip()
 
 
-def _merge_small_chunks(
-    base_chunks: list[PreparedSummaryChunk],
-    min_tokens: int,
-) -> list[PreparedSummaryChunk]:
+def _should_merge_short_chunk_with_next(
+    current_chunk: PreparedSummaryChunk,
+    next_chunk: PreparedSummaryChunk | None,
+    config: ChunkConfig,
+) -> bool:
     """
-    将过短的基础块与后续块顺序拼接。
+    判断过短章节是否允许与下一完整章节合并一次。
     """
-    if not base_chunks:
-        return []
+    if next_chunk is None:
+        return False
 
-    merged_results: list[PreparedSummaryChunk] = []
-    i = 0
+    if current_chunk.token_count >= config.llm_text_min_tokens:
+        return False
 
-    while i < len(base_chunks):
-        current_texts = [base_chunks[i].text]
-        current_records = list(base_chunks[i].extraction_records)
-        current_block_indices = list(base_chunks[i].source_block_indices)
-        current_token_count = base_chunks[i].token_count
+    if next_chunk.token_count > config.llm_text_max_tokens:
+        return False
 
-        j = i + 1
-        while current_token_count < min_tokens and j < len(base_chunks):
-            current_texts.append(base_chunks[j].text)
-            current_records.extend(base_chunks[j].extraction_records)
-            current_block_indices.extend(base_chunks[j].source_block_indices)
-            current_token_count = count_tokens("\n\n".join(current_texts))
-            j += 1
+    merged_text = _merge_chunk_texts([current_chunk.text, next_chunk.text])
+    merged_token_count = count_tokens(merged_text)
 
-        merged_results.append(
-            PreparedSummaryChunk(
-                prepared_chunk_id=-1,
-                text="\n\n".join(current_texts).strip(),
-                token_count=current_token_count,
-                extraction_records=_deduplicate_extraction_records(current_records),
-                source_block_indices=_deduplicate_block_indices(current_block_indices),
-            )
-        )
+    return merged_token_count <= config.llm_text_max_tokens
 
-        i = j
 
-    return merged_results
+def _merge_adjacent_chunks_once(
+    left_chunk: PreparedSummaryChunk,
+    right_chunk: PreparedSummaryChunk,
+) -> PreparedSummaryChunk:
+    """
+    将两个相邻章节块合并一次，不做链式扩展。
+    """
+    merged_text = _merge_chunk_texts([left_chunk.text, right_chunk.text])
+
+    return PreparedSummaryChunk(
+        prepared_chunk_id=-1,
+        text=merged_text,
+        token_count=count_tokens(merged_text),
+        extraction_records=_deduplicate_extraction_records(
+            list(left_chunk.extraction_records) + list(right_chunk.extraction_records)
+        ),
+        source_block_indices=_deduplicate_block_indices(
+            list(left_chunk.source_block_indices)
+            + list(right_chunk.source_block_indices)
+        ),
+    )
+
+
+def _merge_chunk_texts(parts: list[str]) -> str:
+    """
+    按章节顺序合并文本块。
+    """
+    valid_parts = [part.strip() for part in parts if part and part.strip()]
+    return "\n\n".join(valid_parts).strip()
 
 
 def split_oversized_chunk_with_overlap(
     chunk: PreparedSummaryChunk,
     max_tokens: int,
     overlap_tokens: int,
+    split_window_tokens: int | None = None,
 ) -> list[PreparedSummaryChunk]:
     """
     将超长摘要块按 token 拆分，并保留一定 overlap。
@@ -167,7 +214,7 @@ def split_oversized_chunk_with_overlap(
     if not text:
         return []
 
-    if chunk.token_count <= max_tokens:
+    if chunk.token_count <= max_tokens and split_window_tokens is None:
         return [chunk]
 
     words = text.split()
@@ -178,7 +225,9 @@ def split_oversized_chunk_with_overlap(
 
     # 用一个较保守的近似比例：1 word ≈ 1.3 tokens
     approx_tokens_per_word = 1.3
-    window_size = max(1, int(max_tokens / approx_tokens_per_word))
+    target_window_tokens = split_window_tokens or max_tokens
+    target_window_tokens = max(1, min(target_window_tokens, max_tokens))
+    window_size = max(1, int(target_window_tokens / approx_tokens_per_word))
     overlap_size = max(0, int(overlap_tokens / approx_tokens_per_word))
 
     start = 0

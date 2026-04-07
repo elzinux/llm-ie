@@ -250,7 +250,6 @@ def build_failed_check_result(status: str = "summary_check_failed") -> CheckResu
     return CheckResult(
         passed=False,
         information_coverage=0.0,
-        relation_score=0.0,
         semantic_eval_score=0.0,
         overall_score=0.0,
         status=status,
@@ -296,9 +295,6 @@ def _collect_failed_score_names(
     if check_result.information_coverage < config.check.coverage_threshold:
         failed_scores.append("information_coverage")
 
-    if check_result.relation_score < config.check.relation_threshold:
-        failed_scores.append("relation_score")
-
     if check_result.overall_score < config.check.overall_threshold:
         failed_scores.append("overall_score")
 
@@ -322,15 +318,11 @@ def _format_check_failure_reasons(
                 f"{check_result.information_coverage:.4f} < "
                 f"{config.check.coverage_threshold:.4f}"
             )
-        elif score_name == "relation_score":
-            reason_parts.append(
-                f"relation_score={check_result.relation_score:.4f} < "
-                f"{config.check.relation_threshold:.4f}"
-            )
         elif score_name == "overall_score":
             reason_parts.append(
                 f"overall_score={check_result.overall_score:.4f} < "
-                f"{config.check.overall_threshold:.4f}"
+                f"{config.check.overall_threshold:.4f}; "
+                f"semantic_eval_score={check_result.semantic_eval_score:.4f}"
             )
         else:
             reason_parts.append(

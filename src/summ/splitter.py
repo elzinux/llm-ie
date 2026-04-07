@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import spacy
 import tiktoken
+from spacy.language import Language
 
 from src.summ.config import SplitConfig
 from src.summ.schemas import SentenceInfo
 
+_NLP_CACHE: dict[str, Language] = {}
 _TOKENIZER_CACHE: dict[str, Any] = {}
-_NLP_CACHE: dict[str, object] = {}
 
 
 def split_text_into_sentences(
@@ -40,25 +42,31 @@ def split_text_into_sentences(
     if not isinstance(text, str) or not text.strip():
         return []
 
-    nlp = _get_spacy_model(spacy_model_name)
     paragraphs = split_text_into_paragraphs(text)
 
     results: list[SentenceInfo] = []
     global_idx = 0
 
     for paragraph_idx, paragraph_text in enumerate(paragraphs):
-        sentences = split_paragraph_into_sentences(paragraph_text, nlp)
+        sentences = split_paragraph_into_sentences(
+            paragraph_text=paragraph_text,
+            spacy_model_name=spacy_model_name,
+        )
 
         local_sentence_idx = 0
         tmp_text = ""
+
         for sentence_text in sentences:
             cleaned_text = sentence_text.strip()
+
             if len(cleaned_text) < min_sentence_chars:
                 tmp_text = cleaned_text
                 continue
-            if tmp_text != "":
+
+            if tmp_text:
                 cleaned_text = tmp_text + " " + cleaned_text
                 tmp_text = ""
+
             token_count = count_tokens(cleaned_text, tokenizer_name)
 
             results.append(
@@ -91,13 +99,20 @@ def split_text_into_paragraphs(text: str) -> list[str]:
     return [p for p in paragraphs if p]
 
 
-def split_paragraph_into_sentences(paragraph_text: str, nlp) -> list[str]:
+def split_paragraph_into_sentences(
+    paragraph_text: str,
+    spacy_model_name: str = SplitConfig.spacy_model_name,
+) -> list[str]:
     """
     将单个段落切分为句子。
 
+    优先使用 spaCy 分句。
+    函数内部根据 spacy_model_name 加载并缓存模型。
+    如果 spaCy 分句失败，则使用正则作为保底。
+
     参数:
         paragraph_text: 单个段落文本
-        nlp: 已加载的 spaCy 模型
+        spacy_model_name: spaCy 模型名称
 
     返回:
         list[str]
@@ -105,8 +120,32 @@ def split_paragraph_into_sentences(paragraph_text: str, nlp) -> list[str]:
     if not isinstance(paragraph_text, str) or not paragraph_text.strip():
         return []
 
-    doc = nlp(paragraph_text)
-    return [sent.text.strip() for sent in doc.sents if sent.text.strip()]
+    text = paragraph_text.strip()
+
+    if spacy_model_name not in _NLP_CACHE:
+        _NLP_CACHE[spacy_model_name] = spacy.load(spacy_model_name)
+    nlp = _NLP_CACHE[spacy_model_name]
+
+    try:
+        doc = nlp(text)
+        sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
+        if sentences:
+            return sentences
+    except Exception:
+        pass
+
+    return _split_sentences_by_regex(text)
+
+
+def _split_sentences_by_regex(text: str) -> list[str]:
+    """
+    正则保底分句。
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+
+    parts = re.split(r"(?<=[.!?])\s+|\n+", text.strip())
+    return [part.strip() for part in parts if part.strip()]
 
 
 def count_tokens(text: str, tokenizer_name: str = "cl100k_base") -> int:
@@ -138,20 +177,3 @@ def _get_tokenizer(tokenizer_name: str):
             )
 
     return _TOKENIZER_CACHE[tokenizer_name]
-
-
-def _get_spacy_model(model_name: str):
-    """
-    获取并缓存 spaCy 模型。
-    """
-    if model_name not in _NLP_CACHE:
-        _NLP_CACHE[model_name] = spacy.load(model_name)
-    return _NLP_CACHE[model_name]
-
-
-if __name__ == "__main__":
-    TEST_TEXT = ""
-    res = split_text_into_sentences(TEST_TEXT)
-    for x in res:
-        print(x.global_idx)
-        print(x.text)

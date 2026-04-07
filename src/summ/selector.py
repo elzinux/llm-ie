@@ -7,6 +7,7 @@ from sentence_transformers import SentenceTransformer, util
 
 from src.summ.config import SelectionConfig
 from src.summ.schemas import ExtractionRecord, SentenceInfo
+from src.utils.normalize_text import normalize_text
 
 _EMBEDDING_MODEL_CACHE: dict[str, SentenceTransformer] = {}
 
@@ -65,19 +66,6 @@ def select_key_sentences(
     return sentences
 
 
-def _normalize_text(text: str) -> str:
-    """
-    用于鲁棒匹配的轻量归一化：
-    - 转小写
-    - 非字母数字字符替换为空格
-    - 合并多余空格
-    """
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
 def _build_clues(extraction_record: ExtractionRecord) -> list[str]:
     """
     将 keywords 和 key_sentences 合并为统一线索列表。
@@ -91,7 +79,7 @@ def _build_clues(extraction_record: ExtractionRecord) -> list[str]:
         if not text:
             continue
 
-        norm = _normalize_text(text)
+        norm = normalize_text(text)
         if not norm:
             continue
 
@@ -119,7 +107,7 @@ def _compute_direct_match_score(
         return 0.0
 
     sentence_raw = sentence_text.lower()
-    sentence_norm = _normalize_text(sentence_text)
+    sentence_norm = normalize_text(sentence_text)
 
     best_score = 0.0
 
@@ -129,7 +117,7 @@ def _compute_direct_match_score(
             continue
 
         clue_raw = clue.lower()
-        clue_norm = _normalize_text(clue)
+        clue_norm = normalize_text(clue)
 
         # 1. 原始小写文本直接子串命中
         if clue_raw in sentence_raw:
@@ -195,7 +183,9 @@ def _apply_semantic_selection(
         normalize_embeddings=True,
     )
 
-    similarity_matrix = util.cos_sim(sentence_embeddings[target_indices], clue_embeddings)
+    similarity_matrix = util.cos_sim(
+        sentence_embeddings[target_indices], clue_embeddings
+    )
 
     for row_idx, sent_idx in enumerate(target_indices):
         best_similarity = float(similarity_matrix[row_idx].max().item())
