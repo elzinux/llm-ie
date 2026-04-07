@@ -16,14 +16,14 @@ def extract_key_elements(
     """
     调用大模型，从输入文本中提取目标信息线索。
 
-    当前 schema 下，这一步不做严格分类抽取，
+    一步不做严格分类抽取，
     只返回：
     - keywords
     - key_sentences
 
     参数:
         text: 输入文本
-        model_config: 透传给 call_llm 的模型配置
+        model_config: 传给 call_llm 的模型配置
         max_retries: 调用失败或解析失败时的最大重试次数
 
     返回:

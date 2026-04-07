@@ -44,10 +44,12 @@ class ConnectionConfig:
     参数说明：
     - max_gap_sentences: 两个关键句之间最多允许间隔多少句仍可补全连接
     - max_gap_tokens: 两个关键句之间中间句的最大 token 数
+    - local_expand_similarity_threshold: 段内局部补全时的相邻句相似度阈值
     """
 
     max_gap_sentences: int = 3
     max_gap_tokens: int = 120
+    local_expand_similarity_threshold: float = 0.55
 
 
 @dataclass
@@ -70,10 +72,10 @@ class ChunkConfig:
     - 正文文本块建议：900 ~ 2000
     """
 
-    llm_text_min_tokens: int = 1500
-    llm_text_max_tokens: int = 2500
-    small_model_text_min_tokens: int = 900
-    small_model_text_max_tokens: int = 2000
+    llm_text_min_tokens: int = 1000
+    llm_text_max_tokens: int = 2000
+    small_model_text_min_tokens: int = 800
+    small_model_text_max_tokens: int = 1500
     overlap_tokens: int = 150
 
 
@@ -157,6 +159,7 @@ def build_default_config() -> PipelineConfig:
         connection=ConnectionConfig(
             max_gap_sentences=3,
             max_gap_tokens=120,
+            local_expand_similarity_threshold=0.65,
         ),
         chunk=ChunkConfig(
             llm_text_min_tokens=1500,

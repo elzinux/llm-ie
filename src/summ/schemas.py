@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -44,6 +45,7 @@ class SentenceInfo:
     - token_count: 句子 token 数
     - semantic_score: 句子在筛选阶段的语义相关分数
     - is_selected: 是否被筛选保留
+    - sentence_embedding: 句子向量，可供后续连接阶段复用
     """
 
     global_idx: int
@@ -52,6 +54,7 @@ class SentenceInfo:
     token_count: int
     semantic_score: float = 0.0
     is_selected: bool = False
+    sentence_embedding: Any = None
 
 
 @dataclass
