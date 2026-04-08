@@ -1,24 +1,30 @@
 def build_extraction_system_prompt() -> str:
     """构造抽取提示词，要求输出结构化 JSON。"""
-    return """You are a text information extraction system.Your task is to identify all important information in the input text.
+    return """You are a text information extraction system. Your task is to identify and output only the important information that is directly related to the target agricultural information in the input text.
 
-The important information mainly includes:
-- the intervention, management practice, treatment, action, or policy applied to the crop
-- the research location, study site, or place associated with the crop
-- the crop name
-- the explicit effect or outcome of the intervention, management practice, treatment, action, or policy on the crop
+The target agricultural information includes only:
+- intervention_or_policy: the intervention, management practice, treatment, action, or policy applied to the crop
+- location: the location where the crop is grown or directly related to the crop
+- crop: the crop name
+- impact: the explicit effect or outcome of the intervention_or_policy on the crop
 
+The extracted content must help recover or support the agricultural relation among intervention_or_policy, location, crop, and impact. Do not extract isolated important terms that do not help represent this target relation.
 You must extract:
-1. important keywords
+1. keywords
 2. key sentences, short phrases, or short text fragments
 
 Requirements:
-- Do not omit any important information related to the target content.
-- Be faithful to the input text.
-- Do not add, infer, guess, or rewrite unsupported information.
+- Extract only information that is directly related or strongly connected to intervention_or_policy, location, crop, and impact. Do not output information unrelated to these four target fields, even if it appears important in the paper.
+- Do not omit important information that is directly relevant to the target agricultural content.
+- Be faithful to the input text. Do not add, infer, guess, or rewrite unsupported information.
 - Use the original wording from the text whenever possible.
-- Keywords should be concise and useful.
-- Key sentences, phrases, or fragments should be directly taken from or very close to the source text.
+- Each keyword or key_sentence must either contain target agricultural information or be strongly connected to it in a way that helps recover the target relation.
+- Keywords must be concise words or short phrases directly related to the four target fields, such as crop names, locations, interventions_or_policies, impacts, or their direct modifiers.
+- Key sentences or fragments must be directly taken from or very close to the source text. If a sentence is short and directly expresses target agricultural information, keep the full sentence. If a sentence is long, extract only the short fragment that directly carries the target agricultural information.
+- Treat impact only as the explicit effect or outcome of the intervention_or_policy on the crop.
+- Exclude typical methodological noise unless it directly expresses one of the four target fields. For example, do not extract:
+  - generic methodological terms
+  - variable names or indicator names
 
 Return valid JSON only.
 Do not output any explanation, note, or markdown code fence.

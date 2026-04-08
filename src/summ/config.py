@@ -11,7 +11,7 @@ MODEL_RESOURCE_CONFIG: ModelResourceConfig = DEFAULT_MODEL_RESOURCE_CONFIG
 @dataclass
 class SplitConfig:
     """
-    第 2 步：句子切分配置。
+    句子切分配置。
 
     参数说明：
     - spacy_model_name: 英文句子切分使用的 spaCy 模型名称
@@ -27,7 +27,7 @@ class SplitConfig:
 @dataclass
 class SelectionConfig:
     """
-    第 3 步：句子筛选配置。
+    句子筛选配置。
 
     设计原则：
     这一阶段应适当宽松，优先提高召回，减少后续逻辑断裂风险。
@@ -40,13 +40,13 @@ class SelectionConfig:
 
     embedding_model_name: str = MODEL_RESOURCE_CONFIG.embedding_model_name
     fuzzy_threshold: int = 70
-    semantic_threshold: float = 0.60
+    semantic_threshold: float = 0.55
 
 
 @dataclass
 class ConnectionConfig:
     """
-    第 4 步：关键句连接配置。
+    关键句连接配置。
 
     参数说明：
     - max_gap_sentences: 两个关键句之间最多允许间隔多少句仍可补全连接
@@ -62,7 +62,7 @@ class ConnectionConfig:
 @dataclass
 class ChunkConfig:
     """
-    第 5 步：摘要输入块配置。
+    摘要输入块配置。
 
     说明：
     这里不区分 API 模型 / 本地模型的运行实现，
@@ -83,13 +83,13 @@ class ChunkConfig:
     llm_text_max_tokens: int = 2000
     small_model_text_min_tokens: int = 800
     small_model_text_max_tokens: int = 1500
-    overlap_tokens: int = 150
+    overlap_tokens: int = 120
 
 
 @dataclass
 class RetryConfig:
     """
-    第 6 步：摘要配置。
+    摘要配置。
 
     参数说明：
     - max_retry_times: 摘要不通过检查时的最大重试次数
@@ -113,12 +113,12 @@ class CheckConfig:
     coverage_threshold: float = 0.80
 
     keyword_fuzzy_threshold: int = 70
-    sentence_semantic_threshold: float = 0.60
+    sentence_semantic_threshold: float = 0.65
 
     overall_threshold: float = 0.70
 
-    coverage_weight: float = 0.5
-    semantic_eval_weight: float = 0.5
+    coverage_weight: float = 0.6
+    semantic_eval_weight: float = 1 - coverage_weight
 
 
 @dataclass
@@ -165,11 +165,11 @@ def build_default_config() -> PipelineConfig:
             local_expand_similarity_threshold=0.55,
         ),
         chunk=ChunkConfig(
-            llm_text_min_tokens=1500,
-            llm_text_max_tokens=2500,
-            small_model_text_min_tokens=900,
-            small_model_text_max_tokens=2000,
-            overlap_tokens=150,
+            llm_text_min_tokens=1000,
+            llm_text_max_tokens=2000,
+            small_model_text_min_tokens=800,
+            small_model_text_max_tokens=1500,
+            overlap_tokens=120,
         ),
         summary=RetryConfig(
             max_retry_times=2,
@@ -177,9 +177,9 @@ def build_default_config() -> PipelineConfig:
         check=CheckConfig(
             coverage_threshold=0.80,
             keyword_fuzzy_threshold=70,
-            sentence_semantic_threshold=0.60,
+            sentence_semantic_threshold=0.65,
             overall_threshold=0.70,
-            coverage_weight=0.5,
-            semantic_eval_weight=0.5,
+            coverage_weight=0.6,
+            semantic_eval_weight=0.4,
         ),
     )

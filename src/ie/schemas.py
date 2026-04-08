@@ -18,17 +18,17 @@ def build_task_schema() -> dict:
         "allow_multiple_records": True,
         "field_descriptions": {
             "intervention_or_policy": (
-                "the intervention, management practice, treatment, action, "
-                "or policy applied to the crop"
+                "The intervention, management practice, treatment, action, "
+                "or policy applied to the crop."
             ),
             "location": (
-                "the research location, study site, or place associated with the crop"
+                "The location where the crop is grown or related to the crop."
             ),
-            "crop": "the crop name",
+            "crop": "The crop name.",
             "impact": (
-                "the explicit effect or outcome of the intervention_or_policy "
-                "on the crop"
+                "The explicit effect or outcome of the intervention_or_policy "
+                "on the crop."
             ),
-            "evidence": "the shortest exact quote that directly supports the record",
+            "evidence": "The shortest exact quote that directly supports the record.",
         },
     }

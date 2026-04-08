@@ -21,7 +21,7 @@ class InputDocument:
 @dataclass
 class ExtractionRecord:
     """
-    第 1 步：目标信息粗提取结果。
+    目标信息粗提取结果。
 
     这一阶段不对目标信息做严格分类，
     只保留两类用于后续筛选的线索：
@@ -36,7 +36,7 @@ class ExtractionRecord:
 @dataclass
 class SentenceInfo:
     """
-    第 2/3 步：句子级信息。
+    句子级信息。
 
     说明：
     - global_idx: 全局句子索引，用于排序、连接、回溯
@@ -60,7 +60,7 @@ class SentenceInfo:
 @dataclass
 class ConnectedChunk:
     """
-    第 4 步：关键句连接后的片段。
+    关键句连接后的片段。
 
     只保留最必要的信息：
     - chunk_id
@@ -78,7 +78,7 @@ class ConnectedChunk:
 @dataclass
 class PreparedSummaryChunk:
     """
-    第 5 步：整理后的摘要输入块。
+    整理后的摘要输入块。
 
     说明：
     - prepared_chunk_id: 摘要输入块编号
