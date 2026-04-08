@@ -5,11 +5,10 @@ import re
 from rapidfuzz import fuzz
 from sentence_transformers import SentenceTransformer, util
 
-from src.summ.config import SelectionConfig
+from src.summ.config import MODEL_RESOURCE_CONFIG, SelectionConfig
 from src.summ.schemas import ExtractionRecord, SentenceInfo
+from src.utils.model_resources import get_embedding_model
 from src.utils.normalize_text import normalize_text
-
-_EMBEDDING_MODEL_CACHE: dict[str, SentenceTransformer] = {}
 
 
 def select_key_sentences(
@@ -158,7 +157,11 @@ def _apply_semantic_selection(
     if not sentences or not clues:
         return
 
-    model = _get_embedding_model(embedding_model_name)
+    try:
+        model = get_embedding_model(embedding_model_name, resource_config=MODEL_RESOURCE_CONFIG)
+    except RuntimeError:
+        return
+
     sentence_embeddings = _prepare_sentence_embeddings(
         sentences=sentences,
         model=model,
@@ -215,12 +218,3 @@ def _prepare_sentence_embeddings(
 
     return sentence_embeddings
 
-
-def _get_embedding_model(model_name: str) -> SentenceTransformer:
-    """
-    获取并缓存语义相似度模型。
-    """
-    if model_name not in _EMBEDDING_MODEL_CACHE:
-        _EMBEDDING_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
-
-    return _EMBEDDING_MODEL_CACHE[model_name]

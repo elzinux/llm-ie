@@ -3,18 +3,19 @@ from __future__ import annotations
 from sentence_transformers import util
 
 from src.summ.checker import (
-    _DEFAULT_EMBEDDING_MODEL_NAME,
     _collect_key_sentences,
     _collect_keywords,
-    _get_embedding_model,
     check_summary_quality,
 )
-from src.summ.config import CheckConfig
+from src.summ.config import MODEL_RESOURCE_CONFIG, CheckConfig
 from src.summ.extractor import normalize_extraction_record
 from src.summ.schemas import CheckResult, ExtractionRecord, PreparedSummaryChunk
 from src.summ.selector import _compute_direct_match_score
 from src.summ.splitter import split_paragraph_into_sentences
+from src.utils.model_resources import get_embedding_model
 from src.utils.normalize_text import normalize_text
+
+_DEFAULT_EMBEDDING_MODEL_NAME = MODEL_RESOURCE_CONFIG.embedding_model_name
 
 
 def check_summary_quality_with_flow(
@@ -171,7 +172,7 @@ def filter_local_key_sentences(
     if not normalized_chunk_sentences:
         return []
 
-    model = _get_embedding_model(_DEFAULT_EMBEDDING_MODEL_NAME)
+    model = get_embedding_model(_DEFAULT_EMBEDDING_MODEL_NAME, resource_config=MODEL_RESOURCE_CONFIG)
 
     key_embeddings = model.encode(
         normalized_key_sentences,
@@ -202,3 +203,4 @@ def filter_local_key_sentences(
         results.append(raw_key_sentence)
 
     return results
+

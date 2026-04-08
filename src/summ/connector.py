@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import util
 
-from src.summ.config import ConnectionConfig
+from src.summ.config import ConnectionConfig, MODEL_RESOURCE_CONFIG
 from src.summ.schemas import ConnectedChunk, SentenceInfo
+from src.utils.model_resources import get_embedding_model
 
-_EMBEDDING_MODEL_CACHE: dict[str, SentenceTransformer] = {}
-_DEFAULT_LOCAL_EXPAND_EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+_DEFAULT_LOCAL_EXPAND_EMBEDDING_MODEL_NAME = MODEL_RESOURCE_CONFIG.embedding_model_name
 
 
 def connect_selected_sentences(
@@ -260,6 +260,9 @@ def _expand_local_neighbors_in_paragraph(
         sentences=sentences,
         paragraph_indices=paragraph_indices,
     )
+    if len(paragraph_embeddings) != len(paragraph_indices):
+        return set()
+
     paragraph_position_map = {
         sentence_idx: pos for pos, sentence_idx in enumerate(paragraph_indices)
     }
@@ -269,11 +272,13 @@ def _expand_local_neighbors_in_paragraph(
     for anchor_idx in anchor_indices:
         anchor_pos = paragraph_position_map[anchor_idx]
         anchor_embedding = paragraph_embeddings[anchor_pos]
+        if anchor_embedding is None:
+            continue
 
         if anchor_pos > 0:
             previous_idx = paragraph_indices[anchor_pos - 1]
             previous_embedding = paragraph_embeddings[anchor_pos - 1]
-            if (
+            if previous_embedding is not None and (
                 _compute_cosine_similarity(previous_embedding, anchor_embedding)
                 >= similarity_threshold
             ):
@@ -282,7 +287,7 @@ def _expand_local_neighbors_in_paragraph(
         if anchor_pos < len(paragraph_indices) - 1:
             next_idx = paragraph_indices[anchor_pos + 1]
             next_embedding = paragraph_embeddings[anchor_pos + 1]
-            if (
+            if next_embedding is not None and (
                 _compute_cosine_similarity(next_embedding, anchor_embedding)
                 >= similarity_threshold
             ):
@@ -425,6 +430,8 @@ def _get_paragraph_sentence_embeddings(
 
     paragraph_texts = [sentences[idx].text for idx in paragraph_indices]
     encoded_embeddings = _encode_sentence_embeddings(paragraph_texts)
+    if len(encoded_embeddings) != len(paragraph_indices):
+        return []
 
     for pos, sentence_idx in enumerate(paragraph_indices):
         sentences[sentence_idx].sentence_embedding = encoded_embeddings[pos]
@@ -439,7 +446,11 @@ def _encode_sentence_embeddings(texts: list[str]):
     if not texts:
         return []
 
-    model = _get_embedding_model(_DEFAULT_LOCAL_EXPAND_EMBEDDING_MODEL_NAME)
+    try:
+        model = get_embedding_model(_DEFAULT_LOCAL_EXPAND_EMBEDDING_MODEL_NAME, resource_config=MODEL_RESOURCE_CONFIG)
+    except RuntimeError:
+        return []
+
     return model.encode(
         texts,
         convert_to_tensor=True,
@@ -453,12 +464,3 @@ def _compute_cosine_similarity(left_embedding, right_embedding) -> float:
     """
     return float(util.cos_sim(left_embedding, right_embedding).item())
 
-
-def _get_embedding_model(model_name: str) -> SentenceTransformer:
-    """
-    获取并缓存语义模型。
-    """
-    if model_name not in _EMBEDDING_MODEL_CACHE:
-        _EMBEDDING_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
-
-    return _EMBEDDING_MODEL_CACHE[model_name]

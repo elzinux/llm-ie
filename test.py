@@ -1,19 +1,101 @@
-"""
-你需要重新实现experiments/summ下的result_writer.py，run_summ_experiment.py脚本。
-在我的experiments/summ/readers/下有一个文件md_reader.py，用来读取md文件，处理之后返回数据结构InputDocument，这个数据结构你可以在src/summ/schemas.py下找到。
-需要实现一个主函数，用来跑通整个摘要测试，主函数输入的参数是一个md文件，保存的内容修改为下面的内容，保存为json格式。
-chunck：输入到大模型进行摘要的文本
-summary：最终的摘要
-accept：bool值是否接受了最终的摘要
-mid_res：
-    title：文本标题
-    text：原始文本
-    keywords：抽取出来的关键词
-    key_sentences：抽取出来的关键句
-    summ_score：摘要获得的四个分数(列表类型)
-    summ_count：摘要过几次
-    reason：重新摘要的原因（List[List[str]]，内部的List用来记录是那些分数没有达到阈值，外部的List则是在多次重摘要的时候保留原因）
-还需要实现一个函数来调用该主函数，用以实现批处理文件夹下的md文件，之后的使用都会以这个函数作为调用接口，
-我给定的输入文件一般为data/raw/md_files_name/md_name1.md保存文件的内容就保存在data/outputs/md_files_name_summ/md_name1_summ.json
-你还需要对src/summ/pipeline.py脚本和其他src/summ下的相关脚本进行一些修改，主要是调整一下返回的内容，确保能正确的识别到是那个分数没有达到阈值导致的重新摘要。
-"""
+# test_local_models.py
+from __future__ import annotations
+
+from pathlib import Path
+
+import spacy
+import tiktoken
+from sentence_transformers import SentenceTransformer
+
+SPACY_MODEL_PATH = (
+    r"D:\Code\LLM_IE\.venv\Lib\site-packages\en_core_web_sm\en_core_web_sm-3.8.0"
+)
+TOKENIZER_NAME = "cl100k_base"
+EMBEDDING_MODEL_PATH = r"C:\Users\zhulin\.cache\huggingface\hub\models--sentence-transformers--all-MiniLM-L6-v2\snapshots\c9745ed1d9f207416be6d2e6f8de32d1f16199bf"
+
+
+def test_spacy_model() -> None:
+    print("\n" + "=" * 80)
+    print("[1] Testing spaCy local model")
+    print("=" * 80)
+
+    model_path = Path(SPACY_MODEL_PATH)
+    print(f"Configured path: {model_path}")
+    print(f"Path exists: {model_path.exists()}")
+
+    if not model_path.exists():
+        raise FileNotFoundError(f"spaCy model path does not exist: {model_path}")
+
+    nlp = spacy.load(str(model_path))
+    doc = nlp("This is a test sentence for spaCy.")
+    print("Load success.")
+    print(f"Resolved nlp.path: {nlp.path}")
+    print(f"Tokens: {[token.text for token in doc]}")
+    print(f"Sentences: {[sent.text for sent in doc.sents]}")
+
+
+def test_tiktoken() -> None:
+    print("\n" + "=" * 80)
+    print("[2] Testing tiktoken local availability")
+    print("=" * 80)
+
+    enc = tiktoken.get_encoding(TOKENIZER_NAME)
+    text = "This is a test sentence for cl100k_base."
+    token_ids = enc.encode(text)
+
+    print("Load success.")
+    print(f"Encoding name: {enc.name}")
+    print(f"Input text: {text}")
+    print(f"Token ids: {token_ids}")
+    print(f"Token count: {len(token_ids)}")
+
+
+def test_embedding_model() -> None:
+    print("\n" + "=" * 80)
+    print("[3] Testing SentenceTransformer local model")
+    print("=" * 80)
+
+    model_path = Path(EMBEDDING_MODEL_PATH)
+    print(f"Configured path: {model_path}")
+    print(f"Path exists: {model_path.exists()}")
+
+    if not model_path.exists():
+        raise FileNotFoundError(f"Embedding model path does not exist: {model_path}")
+
+    model = SentenceTransformer(str(model_path))
+    sentences = [
+        "Wheat yield increased under improved irrigation.",
+        "Rice production declined because of drought.",
+    ]
+    embeddings = model.encode(sentences, normalize_embeddings=True)
+
+    print("Load success.")
+    print(f"Embedding shape: {embeddings.shape}")
+    print(f"First sentence: {sentences[0]}")
+    print(f"Second sentence: {sentences[1]}")
+    print(f"Vector dim: {len(embeddings[0])}")
+
+
+def main() -> None:
+    print("Start testing local model access...")
+
+    try:
+        test_spacy_model()
+    except Exception as e:
+        print(f"[FAILED] spaCy test failed: {e}")
+
+    try:
+        test_tiktoken()
+    except Exception as e:
+        print(f"[FAILED] tiktoken test failed: {e}")
+
+    try:
+        test_embedding_model()
+    except Exception as e:
+        print(f"[FAILED] SentenceTransformer test failed: {e}")
+
+    print("\nAll tests finished.")
+
+
+if __name__ == "__main__":
+    main()

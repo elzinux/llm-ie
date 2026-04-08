@@ -1,4 +1,4 @@
-from src.summ.semantic_eval.scorer import score_semantic_eval
+from src.eval.semantic_eval.scorer import score_semantic_eval
 
 arr = [""] * 8
 arr[0] = (

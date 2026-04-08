@@ -1,5 +1,12 @@
 from dataclasses import dataclass, field
 
+from src.utils.model_resources import DEFAULT_MODEL_RESOURCE_CONFIG, ModelResourceConfig
+
+# summ 模块当前选择使用的模型资源配置。
+# 默认直接复用公共层提供的全局默认资源配置；若后续需要覆盖，
+# 只应在这里替换为新的 ModelResourceConfig，而不是把底层定义复制回来。
+MODEL_RESOURCE_CONFIG: ModelResourceConfig = DEFAULT_MODEL_RESOURCE_CONFIG
+
 
 @dataclass
 class SplitConfig:
@@ -12,8 +19,8 @@ class SplitConfig:
     - min_sentence_chars: 过滤过短句子的最小字符数
     """
 
-    spacy_model_name: str = "en_core_web_sm"
-    tokenizer_name: str = "cl100k_base"
+    spacy_model_name: str = MODEL_RESOURCE_CONFIG.spacy_model_name
+    tokenizer_name: str = MODEL_RESOURCE_CONFIG.tokenizer_name
     min_sentence_chars: int = 5
 
 
@@ -31,7 +38,7 @@ class SelectionConfig:
     - semantic_threshold: 语义相似度阈值
     """
 
-    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model_name: str = MODEL_RESOURCE_CONFIG.embedding_model_name
     fuzzy_threshold: int = 70
     semantic_threshold: float = 0.60
 
@@ -143,19 +150,19 @@ def build_default_config() -> PipelineConfig:
     """
     return PipelineConfig(
         split=SplitConfig(
-            spacy_model_name="en_core_web_sm",
-            tokenizer_name="cl100k_base",
+            spacy_model_name=MODEL_RESOURCE_CONFIG.spacy_model_name,
+            tokenizer_name=MODEL_RESOURCE_CONFIG.tokenizer_name,
             min_sentence_chars=5,
         ),
         selection=SelectionConfig(
-            embedding_model_name="sentence-transformers/all-MiniLM-L6-v2",
+            embedding_model_name=MODEL_RESOURCE_CONFIG.embedding_model_name,
             fuzzy_threshold=70,
             semantic_threshold=0.60,
         ),
         connection=ConnectionConfig(
             max_gap_sentences=3,
             max_gap_tokens=120,
-            local_expand_similarity_threshold=0.65,
+            local_expand_similarity_threshold=0.55,
         ),
         chunk=ChunkConfig(
             llm_text_min_tokens=1500,

@@ -1,17 +1,10 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
-import spacy
-import tiktoken
-from spacy.language import Language
-
-from src.summ.config import SplitConfig
+from src.summ.config import MODEL_RESOURCE_CONFIG, SplitConfig
 from src.summ.schemas import SentenceInfo
-
-_NLP_CACHE: dict[str, Language] = {}
-_TOKENIZER_CACHE: dict[str, Any] = {}
+from src.utils.model_resources import get_spacy_model, get_tokenizer
 
 
 def split_text_into_sentences(
@@ -107,7 +100,6 @@ def split_paragraph_into_sentences(
     将单个段落切分为句子。
 
     优先使用 spaCy 分句。
-    函数内部根据 spacy_model_name 加载并缓存模型。
     如果 spaCy 分句失败，则使用正则作为保底。
 
     参数:
@@ -122,11 +114,8 @@ def split_paragraph_into_sentences(
 
     text = paragraph_text.strip()
 
-    if spacy_model_name not in _NLP_CACHE:
-        _NLP_CACHE[spacy_model_name] = spacy.load(spacy_model_name)
-    nlp = _NLP_CACHE[spacy_model_name]
-
     try:
+        nlp = get_spacy_model(spacy_model_name, resource_config=MODEL_RESOURCE_CONFIG)
         doc = nlp(text)
         sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
         if sentences:
@@ -148,32 +137,19 @@ def _split_sentences_by_regex(text: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
-def count_tokens(text: str, tokenizer_name: str = "cl100k_base") -> int:
+def count_tokens(
+    text: str,
+    tokenizer_name: str = SplitConfig.tokenizer_name,
+) -> int:
     """
     统计文本 token 数。
     """
     if not isinstance(text, str) or not text:
         return 0
 
-    tokenizer = _get_tokenizer(tokenizer_name)
-
     try:
+        tokenizer = get_tokenizer(tokenizer_name, resource_config=MODEL_RESOURCE_CONFIG)
         return len(tokenizer.encode(text))
     except Exception:
         return 0
 
-
-def _get_tokenizer(tokenizer_name: str):
-    """
-    获取并缓存 tokenizer。
-    优先按 encoding 名称获取；失败时回退到常用模型编码。
-    """
-    if tokenizer_name not in _TOKENIZER_CACHE:
-        try:
-            _TOKENIZER_CACHE[tokenizer_name] = tiktoken.get_encoding(tokenizer_name)
-        except Exception:
-            _TOKENIZER_CACHE[tokenizer_name] = tiktoken.encoding_for_model(
-                "gpt-4o-mini"
-            )
-
-    return _TOKENIZER_CACHE[tokenizer_name]

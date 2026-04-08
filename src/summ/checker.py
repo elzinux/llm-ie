@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from rapidfuzz import fuzz
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import util
 
-from src.summ.config import CheckConfig
+from src.eval.semantic_eval.scorer import score_semantic_eval
+from src.summ.config import MODEL_RESOURCE_CONFIG, CheckConfig
 from src.summ.schemas import CheckResult, ExtractionRecord, PreparedSummaryChunk
-from src.summ.semantic_eval.scorer import score_semantic_eval
 from src.summ.splitter import split_paragraph_into_sentences
+from src.utils.model_resources import get_embedding_model
 from src.utils.normalize_text import normalize_text
 
-_EMBEDDING_MODEL_CACHE: dict[str, SentenceTransformer] = {}
-_DEFAULT_EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+_DEFAULT_EMBEDDING_MODEL_NAME = MODEL_RESOURCE_CONFIG.embedding_model_name
 
 
 def check_summary_quality(
@@ -200,7 +200,15 @@ def _compute_key_sentence_coverage(
     if not normalized_summary_sentences:
         return 0.0
 
-    model = _get_embedding_model(_DEFAULT_EMBEDDING_MODEL_NAME)
+    try:
+        model = get_embedding_model(
+            _DEFAULT_EMBEDDING_MODEL_NAME, resource_config=MODEL_RESOURCE_CONFIG
+        )
+    except RuntimeError:
+        return _compute_literal_key_sentence_coverage(
+            normalized_key_sentences=normalized_key_sentences,
+            normalized_summary_sentences=normalized_summary_sentences,
+        )
 
     key_embeddings = model.encode(
         normalized_key_sentences,
@@ -227,6 +235,23 @@ def _compute_key_sentence_coverage(
         if best_similarity >= semantic_threshold:
             covered += 1
 
+    return covered / len(normalized_key_sentences)
+
+
+def _compute_literal_key_sentence_coverage(
+    normalized_key_sentences: list[str],
+    normalized_summary_sentences: list[str],
+) -> float:
+    """
+    当句向量模型不可用时，仅基于词面包含计算关键句覆盖率。
+    """
+    if not normalized_key_sentences or not normalized_summary_sentences:
+        return 0.0
+
+    summary_norm = " ".join(normalized_summary_sentences)
+    covered = sum(
+        1 for key_sentence in normalized_key_sentences if key_sentence in summary_norm
+    )
     return covered / len(normalized_key_sentences)
 
 
@@ -298,15 +323,6 @@ def _simple_split_sentences(text: str) -> list[str]:
         sentences = new_sentences
 
     return sentences
-
-
-def _get_embedding_model(model_name: str) -> SentenceTransformer:
-    """
-    获取并缓存语义模型。
-    """
-    if model_name not in _EMBEDDING_MODEL_CACHE:
-        _EMBEDDING_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
-    return _EMBEDDING_MODEL_CACHE[model_name]
 
 
 def _compute_overall_score(

@@ -1,41 +1,22 @@
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import List
 
 import networkx as nx
 import numpy as np
-import spacy
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
+
+from src.summ.config import MODEL_RESOURCE_CONFIG
+from src.utils.model_resources import get_embedding_model, get_spacy_model
 
 load_dotenv()
 
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-SPACY_MODEL = "en_core_web_sm"
+EMBED_MODEL = MODEL_RESOURCE_CONFIG.embedding_model_name
+SPACY_MODEL = MODEL_RESOURCE_CONFIG.spacy_model_name
 
 # 参考论文中 SemanticRank 的默认设置
 _SIM_THRESHOLD = 0.1
 _DAMPING = 0.85
-
-
-@lru_cache(maxsize=4)
-def _load_spacy_model(model_name: str):
-    """
-    加载 spaCy 模型。
-    如果模型不带句边界能力，则补一个 sentencizer。
-    """
-    nlp = spacy.load(model_name)
-    if "parser" not in nlp.pipe_names and "senter" not in nlp.pipe_names:
-        if "sentencizer" not in nlp.pipe_names:
-            nlp.add_pipe("sentencizer")
-    return nlp
-
-
-@lru_cache(maxsize=4)
-def _load_embedding_model(model_name: str):
-    """加载句向量模型。"""
-    return SentenceTransformer(model_name)
 
 
 def _split_sentences(text: str, nlp) -> List[str]:
@@ -160,8 +141,11 @@ def score_semantic_eval(
     if not (reference_text or "").strip():
         return 0.0
 
-    nlp = _load_spacy_model(spacy_model)
-    embedder = _load_embedding_model(embedding_model)
+    try:
+        nlp = get_spacy_model(spacy_model, ensure_sentence_boundaries=True, resource_config=MODEL_RESOURCE_CONFIG)
+        embedder = get_embedding_model(embedding_model, resource_config=MODEL_RESOURCE_CONFIG)
+    except RuntimeError:
+        return 0.0
 
     reference_sentences = _split_sentences(reference_text, nlp)
     candidate_sentences = _split_sentences(candidate_text, nlp)
@@ -204,3 +188,4 @@ def score_semantic_eval(
         return 0.0
 
     return max(0.0, min(1.0, score))
+
