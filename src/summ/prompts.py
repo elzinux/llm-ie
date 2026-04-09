@@ -58,6 +58,8 @@ Requirements:
 - Keep the summary faithful to the source text.
 - Keep the summary clear and coherent.
 - The output summary should retain as much of the original text description as possible.
+- Expand abbreviations and acronyms to their full forms whenever the source text explicitly provides or clearly supports the expansion.
+- Prefer full forms over abbreviations in the final summary. If an abbreviation cannot be safely expanded from the source text, keep it unchanged rather than guessing.
 
 Return only the summary text.
 Do not output explanations, notes, bullet points, or markdown.

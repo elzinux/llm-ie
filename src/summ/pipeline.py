@@ -376,9 +376,7 @@ def _build_chunk_location_label(
 ) -> str:
     file_name = input_document.file_name.strip() or "<unknown_file>"
     block_indices = list(getattr(prepared_chunk, "source_block_indices", None) or [])
-    titles = _find_titles_by_block_indices(block_indices, input_document)
 
-    title_text = " | ".join(titles) if titles else "<unknown_title>"
     block_idx_text = (
         ",".join(str(idx) for idx in block_indices)
         if block_indices
@@ -386,7 +384,7 @@ def _build_chunk_location_label(
     )
 
     return (
-        f"file_name={file_name}, titles={title_text}, "
+        f"file_name={file_name}"
         f"block_indices={block_idx_text}, "
         f"prepared_chunk_id={prepared_chunk.prepared_chunk_id}"
     )

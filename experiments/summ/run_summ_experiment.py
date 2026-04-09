@@ -96,7 +96,7 @@ def process_md_folder(
 
 
 SINGLE_FILE_PATH = Path(r"data/raw/test/3.md")
-BATCH_DIR_PATH = Path(r"data/raw/test")
+BATCH_DIR_PATH = Path(r"data/raw/md_files")
 USE_BATCH = True
 EXTRACTION_MAX_RETRIES = 2
 
@@ -115,5 +115,7 @@ def main() -> list[dict[str, Any]]:
 
 
 if __name__ == "__main__":
-    # 运行前余额：20.79
+    # 运行前余额：20.60
+    # 运行后余额：19.89
+    # 16 个文件消耗：0.8
     main()

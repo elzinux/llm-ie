@@ -71,9 +71,9 @@ def check_summary_quality(
 
     return CheckResult(
         passed=passed,
-        information_coverage=information_coverage,
-        semantic_eval_score=semantic_eval_score,
-        overall_score=overall_score,
+        information_coverage=round(information_coverage, 4),
+        semantic_eval_score=round(semantic_eval_score, 4),
+        overall_score=round(overall_score, 4),
     )
 
 
