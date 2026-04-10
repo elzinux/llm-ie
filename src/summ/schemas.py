@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass
@@ -31,6 +31,34 @@ class ExtractionRecord:
 
     keywords: list[str] = field(default_factory=list)
     key_sentences: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ExtractionCandidate:
+    """
+    extractor / reviewer / checker 阶段使用的候选信息结构。
+
+    字段说明：
+    - text:
+        候选文本本身。可以是 field_candidate，也可以是 sentence 或更短的证据片段。
+    - candidate_type:
+        候选类型，只允许:"field_candidate", "evidence_span"
+    - target_fields:
+        该候选涉及到的目标字段列表。
+        可包含的字段通常为:"intervention_or_policy", "location", "crop", "impact"
+    - relevance:
+        与目标信息的相关程度，只允许:"high", "medium", "low", "none
+    - reason:
+        简短说明该候选为什么与目标信息相关。
+    """
+
+    text: str = ""
+    candidate_type: Literal["field_candidate", "evidence_span"] = "field_candidate"
+    target_fields: list[
+        Literal["intervention_or_policy", "location", "crop", "impact"]
+    ] = field(default_factory=list)
+    relevance: Literal["high", "medium", "low", "none"] = "none"
+    reason: str = ""
 
 
 @dataclass

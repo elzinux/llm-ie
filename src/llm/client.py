@@ -6,7 +6,6 @@ from openai import OpenAI
 
 from src.config.settings import API_KEY_ALI
 
-
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_MODEL_NAME = "qwen-plus"
 DEFAULT_MODEL_CONFIG = {
@@ -94,7 +93,7 @@ def call_llm(
     content = response.choices[0].message.content
 
     if content is None or not str(content).strip():
-        raise RuntimeError("模型返回内容为空。")
+        return "模型返回内容为空。"
 
     return str(content).strip()
 
@@ -114,7 +113,9 @@ def call_extraction_model(
 
     final_prompt = prompt_template.strip()
     if extra_instructions and extra_instructions.strip():
-        final_prompt = f"{final_prompt}\n\nAdditional instructions:\n{extra_instructions.strip()}"
+        final_prompt = (
+            f"{final_prompt}\n\nAdditional instructions:\n{extra_instructions.strip()}"
+        )
 
     raw_output = call_llm(
         user_input=text.strip(),
@@ -147,7 +148,9 @@ def call_verification_model(
 
     final_prompt = verification_template.strip()
     if extra_instructions and extra_instructions.strip():
-        final_prompt = f"{final_prompt}\n\nAdditional instructions:\n{extra_instructions.strip()}"
+        final_prompt = (
+            f"{final_prompt}\n\nAdditional instructions:\n{extra_instructions.strip()}"
+        )
 
     verification_input = (
         "Please verify whether the candidate output is faithful to the source text.\n\n"
@@ -182,7 +185,9 @@ def call_reextraction_model(
 
     final_prompt = prompt_template.strip()
     if extra_instructions and extra_instructions.strip():
-        final_prompt = f"{final_prompt}\n\nAdditional instructions:\n{extra_instructions.strip()}"
+        final_prompt = (
+            f"{final_prompt}\n\nAdditional instructions:\n{extra_instructions.strip()}"
+        )
 
     raw_output = call_llm(
         user_input=user_input.strip(),

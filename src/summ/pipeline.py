@@ -24,6 +24,8 @@ from src.summ.summarizer import generate_targeted_summary
 
 logger = logging.getLogger(__name__)
 
+# 修改：在 extractor 阶段没有信息的时候，直接跳过这个文本块。
+
 
 def run_summary_pipeline(
     input_document: InputDocument,

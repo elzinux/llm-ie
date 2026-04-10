@@ -17,11 +17,15 @@ def build_extraction_prompt(task_schema: dict) -> str:
     json_body = ",\n".join(json_lines)
 
     prompt = f"""
-You are an agricultural information extraction system. Extract all explicitly supported records from the input text.
+# Role
+You are an agricultural information extraction system. 
+
+# Task
+# Extract all explicitly supported records from the input text.
 For each record, return:
 {field_text}
 
-Rules:
+# Rules:
 - Extract only information explicitly stated in the source text.
 - Keep a record only if the crop, intervention_or_policy, location, and impact are clearly linked in the text.
 - Do not infer, guess, paraphrase missing information, or hallucinate.
@@ -30,7 +34,7 @@ Rules:
 - Return an empty JSON array if no valid record exists.
 - Reason step by step internally before answering, but do not output your reasoning.
 
-Output:
+# Output:
 - Return valid JSON only.
 - Return a JSON array only.
 - Do not include explanations, notes, headings, or markdown.
@@ -51,13 +55,16 @@ def build_verification_prompt(task_schema: dict) -> str:
     fields = task_schema["fields"]
     field_text = ", ".join(fields)
 
-    prompt = f"""
-You are a strict information verification system. Evaluate whether each candidate record is faithful to the source text.
+    prompt = f"""# Role
+You are a strict information verification system. 
+
+# Task
+Evaluate whether each candidate record is faithful to the source text.
 Each candidate record contains these fields:
 {field_text}
 
+# Rules:
 For each record, verify each field against the source text, then judge whether the whole record is reliable enough to keep.
-Rules:
 - Check each record independently and keep the same output order as the candidate records.
 - Reason step by step internally, but do not output your reasoning.
 - Accept only information explicitly supported by the source text.
@@ -66,25 +73,25 @@ Rules:
 - Check whether the evidence directly supports the record.
 - Be conservative.
 
-Verification score:
+# Verification score:
 - 5: fully supported
 - 4: mostly supported, minor issues
 - 3: partially supported
 - 2: weakly supported
 - 1: unsupported or hallucinated
 
-Re-extraction rule:
+# Re-extraction rule:
 - Set "needs_reextract" to true if verification_score <= 3
 - Set "needs_reextract" to false if verification_score >= 4
 
-Output:
+# Output:
 - Return valid JSON only.
 - Return one result for each candidate record in the same order.
 - Do not rewrite records or add new content.
 - "verification_score" must be an integer from 1 to 5.
 - "reason" must be brief.
 
-Format:
+# Format:
 [
   {{
     "verification_score": 5,
@@ -113,13 +120,15 @@ def build_reextraction_prompt(task_schema: dict) -> str:
         json_lines.append(f'  "{field}": ""')
     json_body = ",\n".join(json_lines)
 
-    prompt = f"""
-You are an agricultural information correction system. Correct one candidate record using the source text and the verification feedback.
+    prompt = f"""# Role
+You are an agricultural information correction system.
 
+# Task
+ Correct one candidate record using the source text and the verification feedback.
 Return one corrected record with these fields:
 {field_text}
 
-Rules:
+# Rules:
 - Read the source text, the original record, and the verification feedback.
 - Reason step by step internally, but do not output your reasoning.
 - Re-extract the full record from the source text.
@@ -130,7 +139,7 @@ Rules:
 - Return exactly one JSON object.
 - If no valid corrected record can be supported, return one object with all fields empty.
 
-Format:
+# Format:
 {{
 {json_body}
 }}
@@ -144,9 +153,9 @@ if __name__ == "__main__":
 
     task_schema = build_task_schema()
 
-    # extra_p = build_extraction_prompt(task_schema)
-    # print(extra_p)
-    # print("-" * 10)
+    extra_p = build_extraction_prompt(task_schema)
+    print(extra_p)
+    print("-" * 10)
 
     # verif_p = build_verification_prompt(task_schema)
     # print(verif_p)

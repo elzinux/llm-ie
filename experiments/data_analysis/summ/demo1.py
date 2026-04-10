@@ -1,3 +1,4 @@
+import csv
 from pathlib import Path
 
 from src.utils.json_reader import read_json
@@ -61,16 +62,71 @@ def read_json_files(folder_path: str) -> None:
             print_data(items)
 
 
+def read_csv(file_path):
+    with open(file_path, mode="r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        cnt1 = dict()
+        cnt2 = dict()
+        cnt3 = dict()
+        length = 0
+        for i, item in enumerate(reader):
+            length += 1
+            if i == 0:
+                continue
+            a = item[-4]
+            b = item[-3]
+            c = item[-2]
+            cnt1[a] = cnt1.get(a, 0) + 1
+            cnt2[b] = cnt2.get(b, 0) + 1
+            cnt3[c] = cnt3.get(3, 0) + 1
+        return length, cnt1, cnt2, cnt3
+
+
+def print_cnt(dic: dict, limit: float) -> int:
+    cnt = 0
+    for k in dic:
+        if float(k) <= limit:
+            cnt += dic[k]
+    print(cnt)
+    return cnt
+
+
+def count(file_path):
+    length, cnt1, cnt2, cnt3 = read_csv(file_path)
+    print(length - 1)
+    print("-" * 5)
+    print_cnt(cnt1, 0.8)
+    print_cnt(cnt1, 0.75)
+    print_cnt(cnt1, 0.7)
+    print_cnt(cnt1, 0.65)
+    print_cnt(cnt1, 0.6)
+    print("-" * 5)
+    print_cnt(cnt2, 0.8)
+    print_cnt(cnt2, 0.75)
+    print_cnt(cnt2, 0.7)
+    print_cnt(cnt2, 0.65)
+    print_cnt(cnt2, 0.6)
+    print("-" * 5)
+    print_cnt(cnt3, 0.8)
+    print_cnt(cnt3, 0.75)
+    print_cnt(cnt3, 0.7)
+    print_cnt(cnt3, 0.65)
+    print_cnt(cnt3, 0.6)
+
+
 if __name__ == "__main__":
-    print(
-        "chunck_tokens",
-        "summary_tokens",
-        "keywords_cnt",
-        "key_sentences_cnt",
-        "information_coverage",
-        "semantic_eval_score",
-        "overall_score",
-        "result",
-    )
-    dir = "data/outputs/md_files_summ"
-    read_json_files(dir)
+    file_path = "data/processed/e4-8-md_files_summ/data1.csv"
+
+    count(file_path)
+
+    # print(
+    #     "chunck_tokens",
+    #     "summary_tokens",
+    #     "keywords_cnt",
+    #     "key_sentences_cnt",
+    #     "information_coverage",
+    #     "semantic_eval_score",
+    #     "overall_score",
+    #     "result",
+    # )
+    # read_json_files(file_path)

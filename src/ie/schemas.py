@@ -18,16 +18,14 @@ def build_task_schema() -> dict:
         "allow_multiple_records": True,
         "field_descriptions": {
             "intervention_or_policy": (
-                "The intervention, management practice, treatment, action, "
-                "or policy applied to the crop."
+                """Specific management practices, treatments, actions, or policies (e.g., "drip irrigation", "nitrogen application", "subsidies")."""
             ),
             "location": (
-                "The location where the crop is grown or related to the crop."
+                """Geographical sites, administrative regions, or specific environments where the crop is grown (e.g., "North China Plain", "greenhouse")."""
             ),
-            "crop": "The crop name.",
+            "crop": """Common or scientific names of the crop (e.g., "Triticum aestivum", "maize").""",
             "impact": (
-                "The explicit effect or outcome of the intervention_or_policy "
-                "on the crop."
+                """The explicit, measurable outcome or effect on the crop(e.g., "yield increase", "biomass reduction")."""
             ),
             "evidence": "The shortest exact quote that directly supports the record.",
         },
