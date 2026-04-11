@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 
 @dataclass
@@ -27,10 +27,14 @@ class ExtractionRecord:
     只保留两类用于后续筛选的线索：
     - keywords: 目标相关关键词
     - key_sentences: 目标相关关键句
+    - keyword_relevance: 保留每个词的重要性
+    - key_sentence_relevance: 保留每个关键片段的重要性
     """
 
     keywords: list[str] = field(default_factory=list)
     key_sentences: list[str] = field(default_factory=list)
+    keyword_relevance: list[str] = field(default_factory=list)
+    key_sentence_relevance: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -47,17 +51,15 @@ class ExtractionCandidate:
         该候选涉及到的目标字段列表。
         可包含的字段通常为:"intervention_or_policy", "location", "crop", "impact"
     - relevance:
-        与目标信息的相关程度，只允许:"high", "medium", "low", "none
+        与目标信息的相关程度，只允许:"high", "medium", "low", "none"
     - reason:
         简短说明该候选为什么与目标信息相关。
     """
 
     text: str = ""
-    candidate_type: Literal["field_candidate", "evidence_span"] = "field_candidate"
-    target_fields: list[
-        Literal["intervention_or_policy", "location", "crop", "impact"]
-    ] = field(default_factory=list)
-    relevance: Literal["high", "medium", "low", "none"] = "none"
+    candidate_type: str = "field_candidate"
+    target_fields: list[str] = field(default_factory=list)
+    relevance: str = "none"
     reason: str = ""
 
 
@@ -128,6 +130,7 @@ class CheckResult:
     passed: bool
     information_coverage: float = 0.0
     semantic_eval_score: float = 0.0
+    auxiliary_score: float = 0.0
     overall_score: float = 0.0
     status: str = ""
 

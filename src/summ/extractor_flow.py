@@ -23,10 +23,10 @@ def extract_key_elements_with_flow(
     对单个章节文本执行 extractor 阶段流程。
 
     规则：
-    1. 若章节长度安全，则整章直接抽取
-    2. 若章节过长，则仅在 extractor 阶段按段落切块
+    1. 若章节长度安全，则整章直接调用 extractor 接口
+    2. 若章节过长，则仅在 extractor_flow 阶段按段落切块
     3. 单段超长时，降级为句子级切分
-    4. 所有子块抽取结果合并为章节级 ExtractionRecord
+    4. 所有子块结果合并为章节级 ExtractionRecord
     """
     if not isinstance(text, str) or not text.strip():
         return ExtractionRecord()
@@ -196,34 +196,55 @@ def split_oversized_paragraph_into_chunks(
 def merge_extraction_records(records: list[ExtractionRecord]) -> ExtractionRecord:
     """
     将多个子块抽取结果合并为章节级 ExtractionRecord。
+
+    合并时保持文本与 relevance 的索引对应关系。
     """
     if not records:
         return ExtractionRecord()
 
-    keywords: list[str] = []
-    key_sentences: list[str] = []
+    keyword_pairs: list[tuple[str, str]] = []
+    key_sentence_pairs: list[tuple[str, str]] = []
 
     for record in records:
         normalized_record = normalize_extraction_record(record)
-        keywords.extend(normalized_record.keywords)
-        key_sentences.extend(normalized_record.key_sentences)
+        keyword_pairs.extend(
+            zip(normalized_record.keywords, normalized_record.keyword_relevance)
+        )
+        key_sentence_pairs.extend(
+            zip(
+                normalized_record.key_sentences,
+                normalized_record.key_sentence_relevance,
+            )
+        )
+
+    merged_keywords, merged_keyword_relevance = _deduplicate_text_relevance_pairs(
+        keyword_pairs
+    )
+    merged_key_sentences, merged_key_sentence_relevance = (
+        _deduplicate_text_relevance_pairs(key_sentence_pairs)
+    )
 
     merged_record = ExtractionRecord(
-        keywords=_deduplicate_normalized_items(keywords),
-        key_sentences=_deduplicate_normalized_items(key_sentences),
+        keywords=merged_keywords,
+        key_sentences=merged_key_sentences,
+        keyword_relevance=merged_keyword_relevance,
+        key_sentence_relevance=merged_key_sentence_relevance,
     )
     return normalize_extraction_record(merged_record)
 
 
-def _deduplicate_normalized_items(items: list[str]) -> list[str]:
+def _deduplicate_text_relevance_pairs(
+    items: list[tuple[str, str]],
+) -> tuple[list[str], list[str]]:
     """
-    对文本项做规范化去重。
+    对文本及其 relevance 成对去重。
     """
-    results: list[str] = []
+    texts: list[str] = []
+    relevances: list[str] = []
     seen: set[str] = set()
 
-    for item in items:
-        normalized_text = _normalize_merge_text(item)
+    for text, relevance in items:
+        normalized_text = _normalize_merge_text(text)
         if not normalized_text:
             continue
 
@@ -232,9 +253,10 @@ def _deduplicate_normalized_items(items: list[str]) -> list[str]:
             continue
 
         seen.add(dedup_key)
-        results.append(normalized_text)
+        texts.append(normalized_text)
+        relevances.append(str(relevance or "none").strip().lower() or "none")
 
-    return results
+    return texts, relevances
 
 
 def _normalize_merge_text(text: str) -> str:

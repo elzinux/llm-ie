@@ -3,8 +3,8 @@ from __future__ import annotations
 from sentence_transformers import util
 
 from src.summ.checker import (
-    _collect_key_sentences,
-    _collect_keywords,
+    _collect_key_sentences_with_relevance,
+    _collect_keywords_with_relevance,
     check_summary_quality,
 )
 from src.summ.config import MODEL_RESOURCE_CONFIG, CheckConfig
@@ -68,8 +68,33 @@ def build_local_records_for_chunk(
     if not global_records:
         return []
 
-    global_keywords = _collect_keywords(global_records)
-    global_key_sentences = _collect_key_sentences(global_records)
+    global_keywords, global_keyword_relevance = _collect_keywords_with_relevance(
+        global_records
+    )
+    global_key_sentences, global_key_sentence_relevance = (
+        _collect_key_sentences_with_relevance(global_records)
+    )
+
+    keyword_relevance_map: dict[str, str] = {}
+    key_sentence_relevance_map: dict[str, str] = {}
+
+    for idx, keyword in enumerate(global_keywords):
+        norm = " ".join(keyword.lower().split())
+        if norm in keyword_relevance_map:
+            continue
+        if idx < len(global_keyword_relevance):
+            keyword_relevance_map[norm] = global_keyword_relevance[idx]
+        else:
+            keyword_relevance_map[norm] = "low"
+
+    for idx, sentence in enumerate(global_key_sentences):
+        norm = " ".join(sentence.lower().split())
+        if norm in key_sentence_relevance_map:
+            continue
+        if idx < len(global_key_sentence_relevance):
+            key_sentence_relevance_map[norm] = global_key_sentence_relevance[idx]
+        else:
+            key_sentence_relevance_map[norm] = "low"
 
     local_keywords = filter_local_keywords(
         keywords=global_keywords,
@@ -82,10 +107,28 @@ def build_local_records_for_chunk(
         semantic_threshold=config.sentence_semantic_threshold,
     )
 
+    local_keyword_relevance: list[str] = []
+    local_key_sentence_relevance: list[str] = []
+    max_len = max(len(local_keywords), len(local_key_sentences))
+
+    for idx in range(max_len):
+        if idx < len(local_keywords):
+            keyword = local_keywords[idx]
+            local_keyword_relevance.append(
+                keyword_relevance_map.get(" ".join(keyword.lower().split()), "low")
+            )
+        if idx < len(local_key_sentences):
+            sentence = local_key_sentences[idx]
+            local_key_sentence_relevance.append(
+                key_sentence_relevance_map.get(" ".join(sentence.lower().split()), "low")
+            )
+
     local_record = normalize_extraction_record(
         ExtractionRecord(
             keywords=local_keywords,
             key_sentences=local_key_sentences,
+            keyword_relevance=local_keyword_relevance,
+            key_sentence_relevance=local_key_sentence_relevance,
         )
     )
     if not local_record.keywords and not local_record.key_sentences:
@@ -203,4 +246,3 @@ def filter_local_key_sentences(
         results.append(raw_key_sentence)
 
     return results
-

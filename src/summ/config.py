@@ -114,11 +114,14 @@ class CheckConfig:
 
     keyword_fuzzy_threshold: int = 70
     sentence_semantic_threshold: float = 0.65
+    auxiliary_score_threshold: float = 0.0
+    auxiliary_metric_name: str = ""
 
     overall_threshold: float = 0.70
 
     coverage_weight: float = 0.6
     semantic_eval_weight: float = 1 - coverage_weight
+    auxiliary_score_weight: float = 1 - coverage_weight
 
 
 @dataclass

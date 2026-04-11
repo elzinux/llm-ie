@@ -11,6 +11,7 @@ from src.utils.model_resources import get_embedding_model
 from src.utils.normalize_text import normalize_text
 
 _DEFAULT_EMBEDDING_MODEL_NAME = MODEL_RESOURCE_CONFIG.embedding_model_name
+_RELEVANCE_WEIGHTS = {"high": 3, "medium": 2, "low": 1, "none": 0}
 
 
 def check_summary_quality(
@@ -86,50 +87,46 @@ def compute_information_coverage(
     """
     计算摘要对目标信息的覆盖程度。
 
-    组成：
-    - keyword coverage
-    - key sentence coverage
-
-    最终分数取两者平均。
+    先分别计算 keywords 和 key_sentences 的加权覆盖率，
+    再按固定比例汇总：
+    information_coverage = 0.4 * keyword_coverage + 0.6 * key_sentence_coverage
     """
-    keywords = _collect_keywords(extraction_records)
-    key_sentences = _collect_key_sentences(extraction_records)
+    keywords, keyword_relevance = _collect_keywords_with_relevance(extraction_records)
+    key_sentences, key_sentence_relevance = _collect_key_sentences_with_relevance(
+        extraction_records
+    )
 
     keyword_coverage = _compute_keyword_coverage(
         keywords=keywords,
         summary=summary,
         fuzzy_threshold=keyword_fuzzy_threshold,
+        keyword_relevance=keyword_relevance,
     )
-
     key_sentence_coverage = _compute_key_sentence_coverage(
         key_sentences=key_sentences,
         summary=summary,
         semantic_threshold=sentence_semantic_threshold,
+        key_sentence_relevance=key_sentence_relevance,
     )
 
-    if keywords and key_sentences:
-        return (keyword_coverage + key_sentence_coverage) / 2.0
-    if keywords:
-        return keyword_coverage
-    if key_sentences:
-        return key_sentence_coverage
-
-    return 1.0
+    return 0.4 * keyword_coverage + 0.6 * key_sentence_coverage
 
 
 def _compute_keyword_coverage(
     keywords: list[str],
     summary: str,
     fuzzy_threshold: int,
+    keyword_relevance: list[str] | None = None,
 ) -> float:
     """
-    计算关键词覆盖率。
+    计算关键词覆盖率（加权覆盖率）。
 
     逻辑：
     - 先对关键词和摘要做归一化
     - 关键词先做词面包含判断
     - 若未命中，再做模糊匹配
     - 达到阈值则视为该关键词被覆盖
+    - 使用 relevance 权重计算加权覆盖率
     """
     if not keywords:
         return 0.0
@@ -138,42 +135,51 @@ def _compute_keyword_coverage(
     if not summary_norm:
         return 0.0
 
-    normalized_keywords = []
-    for keyword in keywords:
-        keyword_norm = normalize_text(keyword)
-        if keyword_norm:
-            normalized_keywords.append(keyword_norm)
+    if keyword_relevance is None:
+        keyword_relevance = []
 
-    if not normalized_keywords:
-        return 0.0
-
+    total = 0
     covered = 0
 
-    for keyword_norm in normalized_keywords:
+    for i, keyword in enumerate(keywords):
+        keyword_norm = normalize_text(keyword)
+        if not keyword_norm:
+            continue
+
+        relevance = keyword_relevance[i] if i < len(keyword_relevance) else "low"
+        weight = _RELEVANCE_WEIGHTS.get(relevance, 1)
+
+        total += weight
+
         if keyword_norm in summary_norm:
-            covered += 1
+            covered += weight
             continue
 
         fuzzy_score = fuzz.partial_ratio(keyword_norm, summary_norm)
         if fuzzy_score >= fuzzy_threshold:
-            covered += 1
+            covered += weight
 
-    return covered / len(normalized_keywords)
+    if total == 0:
+        return 0.0
+
+    return covered / total
 
 
 def _compute_key_sentence_coverage(
     key_sentences: list[str],
     summary: str,
     semantic_threshold: float,
+    key_sentence_relevance: list[str] | None = None,
 ) -> float:
     """
-    计算关键句覆盖率。
+    计算关键句覆盖率（加权覆盖率）。
 
     逻辑：
     - 先对关键句和摘要句做归一化
     - 每条关键句先做词面包含判断
     - 若未命中，再与摘要句集合计算语义相似度
     - 关键句与任一摘要句的最大相似度达到阈值，则视为被覆盖
+    - 使用 relevance 权重计算加权覆盖率
     """
     if not key_sentences:
         return 0.0
@@ -182,11 +188,20 @@ def _compute_key_sentence_coverage(
     if not summary_sentences:
         summary_sentences = [summary]
 
-    normalized_key_sentences = []
-    for s in key_sentences:
-        norm = normalize_text(s)
-        if norm:
-            normalized_key_sentences.append(norm)
+    if key_sentence_relevance is None:
+        key_sentence_relevance = []
+
+    normalized_key_sentences: list[str] = []
+    key_sentence_weights: list[int] = []
+    for idx, sentence in enumerate(key_sentences):
+        norm = normalize_text(sentence)
+        if not norm:
+            continue
+        normalized_key_sentences.append(norm)
+        relevance = (
+            key_sentence_relevance[idx] if idx < len(key_sentence_relevance) else "low"
+        )
+        key_sentence_weights.append(_RELEVANCE_WEIGHTS.get(relevance, 1))
 
     if not normalized_key_sentences:
         return 0.0
@@ -208,6 +223,7 @@ def _compute_key_sentence_coverage(
         return _compute_literal_key_sentence_coverage(
             normalized_key_sentences=normalized_key_sentences,
             normalized_summary_sentences=normalized_summary_sentences,
+            key_sentence_weights=key_sentence_weights,
         )
 
     key_embeddings = model.encode(
@@ -223,24 +239,30 @@ def _compute_key_sentence_coverage(
 
     similarity_matrix = util.cos_sim(key_embeddings, summary_embeddings)
 
+    total = sum(key_sentence_weights)
     covered = 0
     summary_norm = " ".join(normalized_summary_sentences)
 
     for i, key_sentence in enumerate(normalized_key_sentences):
+        weight = key_sentence_weights[i]
         if key_sentence in summary_norm:
-            covered += 1
+            covered += weight
             continue
 
         best_similarity = float(similarity_matrix[i].max().item())
         if best_similarity >= semantic_threshold:
-            covered += 1
+            covered += weight
 
-    return covered / len(normalized_key_sentences)
+    if total == 0:
+        return 0.0
+
+    return covered / total
 
 
 def _compute_literal_key_sentence_coverage(
     normalized_key_sentences: list[str],
     normalized_summary_sentences: list[str],
+    key_sentence_weights: list[int] | None = None,
 ) -> float:
     """
     当句向量模型不可用时，仅基于词面包含计算关键句覆盖率。
@@ -248,22 +270,35 @@ def _compute_literal_key_sentence_coverage(
     if not normalized_key_sentences or not normalized_summary_sentences:
         return 0.0
 
+    if key_sentence_weights is None:
+        key_sentence_weights = [1] * len(normalized_key_sentences)
+
     summary_norm = " ".join(normalized_summary_sentences)
-    covered = sum(
-        1 for key_sentence in normalized_key_sentences if key_sentence in summary_norm
-    )
-    return covered / len(normalized_key_sentences)
+    total = sum(key_sentence_weights)
+    covered = 0
+
+    for idx, key_sentence in enumerate(normalized_key_sentences):
+        if key_sentence in summary_norm:
+            covered += key_sentence_weights[idx]
+
+    if total == 0:
+        return 0.0
+
+    return covered / total
 
 
-def _collect_keywords(extraction_records: list[ExtractionRecord]) -> list[str]:
+def _collect_keywords_with_relevance(
+    extraction_records: list[ExtractionRecord],
+) -> tuple[list[str], list[str]]:
     """
-    收集并去重所有关键词。
+    收集并去重所有关键词及其 relevance。
     """
-    results: list[str] = []
+    keywords: list[str] = []
+    keyword_relevance: list[str] = []
     seen: set[str] = set()
 
     for record in extraction_records:
-        for keyword in record.keywords:
+        for idx, keyword in enumerate(record.keywords):
             text = keyword.strip()
             if not text:
                 continue
@@ -273,20 +308,28 @@ def _collect_keywords(extraction_records: list[ExtractionRecord]) -> list[str]:
                 continue
 
             seen.add(norm)
-            results.append(text)
+            keywords.append(text)
+            if idx < len(record.keyword_relevance):
+                relevance = record.keyword_relevance[idx]
+            else:
+                relevance = "low"
+            keyword_relevance.append(str(relevance or "low").strip().lower() or "low")
 
-    return results
+    return keywords, keyword_relevance
 
 
-def _collect_key_sentences(extraction_records: list[ExtractionRecord]) -> list[str]:
+def _collect_key_sentences_with_relevance(
+    extraction_records: list[ExtractionRecord],
+) -> tuple[list[str], list[str]]:
     """
-    收集并去重所有关键句/关键片段。
+    收集并去重所有关键句/关键片段及其 relevance。
     """
-    results: list[str] = []
+    key_sentences: list[str] = []
+    key_sentence_relevance: list[str] = []
     seen: set[str] = set()
 
     for record in extraction_records:
-        for sentence in record.key_sentences:
+        for idx, sentence in enumerate(record.key_sentences):
             text = sentence.strip()
             if not text:
                 continue
@@ -296,9 +339,16 @@ def _collect_key_sentences(extraction_records: list[ExtractionRecord]) -> list[s
                 continue
 
             seen.add(norm)
-            results.append(text)
+            key_sentences.append(text)
+            if idx < len(record.key_sentence_relevance):
+                relevance = record.key_sentence_relevance[idx]
+            else:
+                relevance = "low"
+            key_sentence_relevance.append(
+                str(relevance or "low").strip().lower() or "low"
+            )
 
-    return results
+    return key_sentences, key_sentence_relevance
 
 
 def _simple_split_sentences(text: str) -> list[str]:
