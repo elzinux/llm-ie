@@ -129,7 +129,6 @@ class PreparedSummaryChunk:
 class CheckResult:
     passed: bool
     information_coverage: float = 0.0
-    semantic_eval_score: float = 0.0
     auxiliary_score: float = 0.0
     overall_score: float = 0.0
     status: str = ""

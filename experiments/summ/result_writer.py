@@ -177,7 +177,7 @@ def _build_summ_score_list(chunk_result: SummaryChunkResult | None) -> list[floa
     check_result = _get_chunk_check_result(chunk_result)
     return [
         float(check_result.information_coverage),
-        float(check_result.semantic_eval_score),
+        float(check_result.auxiliary_score),
         float(check_result.overall_score),
     ]
 

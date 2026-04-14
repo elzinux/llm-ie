@@ -3,7 +3,7 @@ from __future__ import annotations
 from rapidfuzz import fuzz
 from sentence_transformers import util
 
-from src.eval.semantic_eval.scorer import score_semantic_eval
+from src.summ.auxiliary_scorer import compute_auxiliary_score
 from src.summ.config import MODEL_RESOURCE_CONFIG, CheckConfig
 from src.summ.schemas import CheckResult, ExtractionRecord, PreparedSummaryChunk
 from src.summ.splitter import split_paragraph_into_sentences
@@ -24,14 +24,14 @@ def check_summary_quality(
 
     当前检查逻辑保持简单：
     1. 用关键词和关键句估计 information_coverage
-    2. 用摘要与原文的语义覆盖估计 semantic_eval_score
+    2. 计算摘要对应的 auxiliary_score
     3. 根据阈值判断是否通过
     """
     if not isinstance(source_chunk, PreparedSummaryChunk):
         return CheckResult(
             passed=False,
             information_coverage=0.0,
-            semantic_eval_score=0.0,
+            auxiliary_score=0.0,
             overall_score=0.0,
         )
 
@@ -40,7 +40,7 @@ def check_summary_quality(
         return CheckResult(
             passed=False,
             information_coverage=0.0,
-            semantic_eval_score=0.0,
+            auxiliary_score=0.0,
             overall_score=0.0,
         )
 
@@ -54,14 +54,14 @@ def check_summary_quality(
             sentence_semantic_threshold=config.sentence_semantic_threshold,
         )
 
-    semantic_eval_score = score_semantic_eval(
-        candidate_text=summary,
-        reference_text=source_chunk.text,
+    auxiliary_score = compute_auxiliary_score(
+        source_text=source_chunk.text,
+        summary=summary,
     )
 
     overall_score = _compute_overall_score(
         information_coverage=information_coverage,
-        semantic_eval_score=semantic_eval_score,
+        auxiliary_score=auxiliary_score,
         config=config,
     )
 
@@ -73,7 +73,7 @@ def check_summary_quality(
     return CheckResult(
         passed=passed,
         information_coverage=round(information_coverage, 4),
-        semantic_eval_score=round(semantic_eval_score, 4),
+        auxiliary_score=round(auxiliary_score, 4),
         overall_score=round(overall_score, 4),
     )
 
@@ -377,15 +377,15 @@ def _simple_split_sentences(text: str) -> list[str]:
 
 def _compute_overall_score(
     information_coverage: float,
-    semantic_eval_score: float,
+    auxiliary_score: float,
     config: CheckConfig,
 ) -> float:
-    total_weight = config.coverage_weight + config.semantic_eval_weight
+    total_weight = config.coverage_weight + config.auxiliary_score_weight
     if total_weight <= 0:
         return 0.0
 
     score = (
         information_coverage * config.coverage_weight
-        + semantic_eval_score * config.semantic_eval_weight
+        + auxiliary_score * config.auxiliary_score_weight
     ) / total_weight
     return round(score, 4)

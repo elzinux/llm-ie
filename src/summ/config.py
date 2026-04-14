@@ -105,9 +105,10 @@ class CheckConfig:
     - coverage_threshold: 信息覆盖得分阈值
     - keyword_fuzzy_threshold: 关键词覆盖检查时的模糊匹配阈值
     - sentence_semantic_threshold: 关键句覆盖检查时的语义相似阈值
+    - auxiliary_score_threshold: 辅助分数阈值
     - overall_threshold: 总分的阈值
     - coverage_weight: 信息覆盖的权重
-    - semantic_eval_weight: 全局覆盖（事实一致性）的权重
+    - auxiliary_score_weight: 辅助分数的权重
     """
 
     coverage_threshold: float = 0.80
@@ -119,8 +120,7 @@ class CheckConfig:
 
     overall_threshold: float = 0.70
 
-    coverage_weight: float = 0.6
-    semantic_eval_weight: float = 1 - coverage_weight
+    coverage_weight: float = 0.5
     auxiliary_score_weight: float = 1 - coverage_weight
 
 
@@ -182,7 +182,7 @@ def build_default_config() -> PipelineConfig:
             keyword_fuzzy_threshold=70,
             sentence_semantic_threshold=0.65,
             overall_threshold=0.70,
-            coverage_weight=0.6,
-            semantic_eval_weight=0.4,
+            coverage_weight=0.5,
+            auxiliary_score_weight=0.5,
         ),
     )

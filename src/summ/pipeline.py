@@ -261,7 +261,7 @@ def build_failed_check_result(status: str = "summary_check_failed") -> CheckResu
     return CheckResult(
         passed=False,
         information_coverage=0.0,
-        semantic_eval_score=0.0,
+        auxiliary_score=0.0,
         overall_score=0.0,
         status=status,
     )
@@ -333,12 +333,12 @@ def _format_check_failure_reasons(
             reason_parts.append(
                 f"overall_score={check_result.overall_score:.4f} < "
                 f"{config.check.overall_threshold:.4f}; "
-                f"semantic_eval_score={check_result.semantic_eval_score:.4f}"
+                f"auxiliary_score={check_result.auxiliary_score:.4f}"
             )
         else:
             reason_parts.append(
                 "passed=False but no threshold violation found; "
-                f"semantic_eval_score={check_result.semantic_eval_score:.4f}"
+                f"auxiliary_score={check_result.auxiliary_score:.4f}"
             )
 
     return "; ".join(reason_parts)
