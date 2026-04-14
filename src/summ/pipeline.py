@@ -180,7 +180,6 @@ def summarize_and_check_chunk(
             summary="",
             attempts=0,
             check_result=build_failed_check_result(status="invalid_chunk"),
-            retry_reasons=[],
         )
 
     if not _has_effective_extraction_records(prepared_chunk):
@@ -190,7 +189,6 @@ def summarize_and_check_chunk(
             summary="",
             attempts=0,
             check_result=build_failed_check_result(status="no_extraction"),
-            retry_reasons=[],
         )
 
     chapter_chunk_count = _get_chapter_chunk_count(
@@ -201,7 +199,6 @@ def summarize_and_check_chunk(
     max_retry_times = config.summary.max_retry_times
     last_summary = ""
     last_check_result = build_failed_check_result(status="summary_check_failed")
-    retry_reasons: list[list[str]] = []
 
     for attempt in range(1, max_retry_times + 2):
         raw_summary = generate_targeted_summary(
@@ -224,14 +221,13 @@ def summarize_and_check_chunk(
         last_check_result = check_result
 
         if not check_result.passed:
-            failed_scores = _collect_failed_score_names(check_result, config)
-            retry_reasons.append(failed_scores)
             logger.warning(
-                "Summary check failed on attempt %s: %s; reasons: %s",
+                "Summary check failed: %s, attempt_num=%s, information_coverage=%.4f, auxiliary_score=%.4f, overall_score=%.4f",
+                location_label or f"prepared_chunk_id={prepared_chunk.prepared_chunk_id}",
                 attempt,
-                location_label
-                or f"prepared_chunk_id={prepared_chunk.prepared_chunk_id}",
-                _format_check_failure_reasons(check_result, config),
+                check_result.information_coverage,
+                check_result.auxiliary_score,
+                check_result.overall_score,
             )
 
         if check_result.passed:
@@ -241,7 +237,6 @@ def summarize_and_check_chunk(
                 summary=summary,
                 attempts=attempt,
                 check_result=check_result,
-                retry_reasons=retry_reasons,
             )
 
     return SummaryChunkResult(
@@ -250,7 +245,6 @@ def summarize_and_check_chunk(
         summary=last_summary,
         attempts=max_retry_times + 1,
         check_result=last_check_result,
-        retry_reasons=retry_reasons,
     )
 
 
@@ -297,53 +291,6 @@ def _has_effective_extraction_records(prepared_chunk: PreparedSummaryChunk) -> b
     )
 
 
-def _collect_failed_score_names(
-    check_result: CheckResult,
-    config: PipelineConfig,
-) -> list[str]:
-    failed_scores: list[str] = []
-
-    if check_result.information_coverage < config.check.coverage_threshold:
-        failed_scores.append("information_coverage")
-
-    if check_result.overall_score < config.check.overall_threshold:
-        failed_scores.append("overall_score")
-
-    if not failed_scores:
-        failed_scores.append("unknown")
-
-    return failed_scores
-
-
-def _format_check_failure_reasons(
-    check_result: CheckResult,
-    config: PipelineConfig,
-) -> str:
-    failed_scores = _collect_failed_score_names(check_result, config)
-    reason_parts: list[str] = []
-
-    for score_name in failed_scores:
-        if score_name == "information_coverage":
-            reason_parts.append(
-                "information_coverage="
-                f"{check_result.information_coverage:.4f} < "
-                f"{config.check.coverage_threshold:.4f}"
-            )
-        elif score_name == "overall_score":
-            reason_parts.append(
-                f"overall_score={check_result.overall_score:.4f} < "
-                f"{config.check.overall_threshold:.4f}; "
-                f"auxiliary_score={check_result.auxiliary_score:.4f}"
-            )
-        else:
-            reason_parts.append(
-                "passed=False but no threshold violation found; "
-                f"auxiliary_score={check_result.auxiliary_score:.4f}"
-            )
-
-    return "; ".join(reason_parts)
-
-
 def _build_chapter_chunk_counts(
     prepared_chunks: list[PreparedSummaryChunk],
 ) -> dict[tuple[int, ...], int]:
@@ -384,7 +331,7 @@ def _build_chunk_location_label(
     )
 
     return (
-        f"file_name={file_name}"
+        f"file_name={file_name}, "
         f"block_indices={block_idx_text}, "
         f"prepared_chunk_id={prepared_chunk.prepared_chunk_id}"
     )
@@ -416,3 +363,4 @@ def _find_titles_by_block_indices(
         titles.append(title)
 
     return titles
+

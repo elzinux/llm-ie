@@ -66,8 +66,15 @@ def check_summary_quality(
     )
 
     passed = (
-        information_coverage >= config.coverage_threshold
-        and overall_score >= config.overall_threshold
+        (
+            information_coverage >= config.coverage_threshold
+            and auxiliary_score >= config.auxiliary_score_threshold
+        )
+        or (
+            overall_score >= config.overall_threshold
+            and information_coverage >= config.minimum_coverage_floor
+            and auxiliary_score >= config.minimum_auxiliary_floor
+        )
     )
 
     return CheckResult(

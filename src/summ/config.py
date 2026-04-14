@@ -107,6 +107,8 @@ class CheckConfig:
     - sentence_semantic_threshold: 关键句覆盖检查时的语义相似阈值
     - auxiliary_score_threshold: 辅助分数阈值
     - overall_threshold: 总分的阈值
+    - minimum_coverage_floor: 走 overall_score 分支时的信息覆盖下限
+    - minimum_auxiliary_floor: 走 overall_score 分支时的辅助分数下限
     - coverage_weight: 信息覆盖的权重
     - auxiliary_score_weight: 辅助分数的权重
     """
@@ -115,10 +117,12 @@ class CheckConfig:
 
     keyword_fuzzy_threshold: int = 70
     sentence_semantic_threshold: float = 0.65
-    auxiliary_score_threshold: float = 0.0
+    auxiliary_score_threshold: float = 0.80
     auxiliary_metric_name: str = ""
 
-    overall_threshold: float = 0.70
+    overall_threshold: float = 0.75
+    minimum_coverage_floor: float = 0.60
+    minimum_auxiliary_floor: float = 0.60
 
     coverage_weight: float = 0.5
     auxiliary_score_weight: float = 1 - coverage_weight
@@ -181,7 +185,10 @@ def build_default_config() -> PipelineConfig:
             coverage_threshold=0.80,
             keyword_fuzzy_threshold=70,
             sentence_semantic_threshold=0.65,
-            overall_threshold=0.70,
+            auxiliary_score_threshold=0.8,
+            overall_threshold=0.75,
+            minimum_coverage_floor=0.60,
+            minimum_auxiliary_floor=0.60,
             coverage_weight=0.5,
             auxiliary_score_weight=0.5,
         ),

@@ -169,7 +169,6 @@ class SummaryChunkResult:
     - summary: 模型生成的摘要
     - attempts: 实际摘要尝试次数
     - check_result: 检查结果
-    - retry_reasons: 每次重摘要对应的失败分数项
     """
 
     prepared_chunk_id: int
@@ -177,7 +176,6 @@ class SummaryChunkResult:
     summary: str
     attempts: int
     check_result: CheckResult
-    retry_reasons: list[list[str]] = field(default_factory=list)
 
 
 @dataclass

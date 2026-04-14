@@ -47,7 +47,9 @@ def build_summary_output_path(
     return ensure_dir(target_dir) / f"{safe_stem}_summ.json"
 
 
-def save_summary_results(output_path: str | Path, results: list[dict[str, Any]]) -> None:
+def save_summary_results(
+    output_path: str | Path, results: list[dict[str, Any]]
+) -> None:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -120,7 +122,6 @@ def _build_mid_res_records(
                 "key_sentences": _collect_key_sentences(block_result),
                 "summ_score": _build_summ_score_list(chunk_result),
                 "summ_count": chunk_result.attempts if chunk_result is not None else 0,
-                "reason": list(chunk_result.retry_reasons) if chunk_result is not None else [],
             }
         )
 
