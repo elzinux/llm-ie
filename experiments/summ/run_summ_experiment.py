@@ -96,7 +96,7 @@ def process_md_folder(
 
 
 SINGLE_FILE_PATH = Path(r"data/raw/test/3.md")
-BATCH_DIR_PATH = Path(r"data/raw/md_files")
+BATCH_DIR_PATH = Path(r"data/raw/test")
 USE_BATCH = True
 EXTRACTION_MAX_RETRIES = 2
 

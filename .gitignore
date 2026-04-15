@@ -2,7 +2,7 @@
 # 忽略数据文件夹（大文件、原始数据、中间处理结果）
 /data/
 /tests/
-/experiments
+/experiments/
 # 忽略任何测试产生的临时文本
 utf8-test.txt
 
