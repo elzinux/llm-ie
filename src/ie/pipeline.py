@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.ie.correction import reextract_flagged_records
+from src.ie.correction import is_empty_record, reextract_flagged_records
 from src.ie.parser import parse_extraction_output, parse_verification_output
 from src.ie.prompts import build_extraction_prompt, build_verification_prompt
 from src.ie.schemas import build_task_schema
@@ -36,7 +36,11 @@ def extract_records(
         extra_instructions=extra_instructions,
     )
 
-    records = parse_extraction_output(llm_result["raw_output"])
+    records = [
+        record
+        for record in parse_extraction_output(llm_result["raw_output"])
+        if not is_empty_record(record)
+    ]
 
     return {
         "task_schema": task_schema,
@@ -57,6 +61,14 @@ def verify_records(
 
     if not isinstance(records, list):
         raise ValueError("records 必须是列表。")
+
+    if not records:
+        return {
+            "task_schema": None,
+            "final_prompt": "",
+            "raw_output": "[]",
+            "verification_records": [],
+        }
 
     task_schema = build_task_schema()
     verification_prompt = build_verification_prompt(task_schema)
@@ -108,6 +120,18 @@ def run_ie_with_verification(
         extra_instructions=extraction_extra_instructions,
     )
 
+    if not extraction_result["records"]:
+        return {
+            "mode": "with_verification",
+            "extraction": extraction_result,
+            "verification": {
+                "task_schema": None,
+                "final_prompt": "",
+                "raw_output": "[]",
+                "verification_records": [],
+            },
+        }
+
     verification_result = verify_records(
         text=text,
         records=extraction_result["records"],
@@ -137,6 +161,29 @@ def run_ie_with_correction(
         text=text,
         extra_instructions=extraction_extra_instructions,
     )
+
+    if not initial_extraction["records"]:
+        return {
+            "mode": "with_correction",
+            "initial_extraction": initial_extraction,
+            "initial_verification": {
+                "task_schema": None,
+                "final_prompt": "",
+                "raw_output": "[]",
+                "verification_records": [],
+            },
+            "reextraction": {
+                "score_threshold": reextract_score_threshold,
+                "reextract_count": 0,
+                "reextract_results": [],
+                "failed_records": [],
+                "invalid_verification_count": 0,
+                "unused_verification_count": 0,
+                "final_records": [],
+            },
+            "final_records": [],
+            "final_verification": None,
+        }
 
     initial_verification = verify_records(
         text=text,

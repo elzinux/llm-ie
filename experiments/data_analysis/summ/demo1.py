@@ -35,12 +35,19 @@ def print_data(dic):
         # print(f"关键词个数：{cnt_w}，关键句子个数：{cnt_s}，总数：{cnt_w + cnt_s}")
         print(
             cnt_chunck,
+            ",",
             cnt_summary,
+            ",",
             cnt_w,
+            ",",
             cnt_s,
+            ",",
             round(score[0], 2),
+            ",",
             round(score[1], 2),
+            ",",
             round(score[2], 2),
+            ",",
             int(accept),
         )
 
@@ -65,9 +72,9 @@ def read_json_files(folder_path: str) -> None:
 def read_csv(file_path):
     with open(file_path, mode="r", encoding="utf-8") as f:
         reader = csv.reader(f)
-        cnt1 = dict()
-        cnt2 = dict()
-        cnt3 = dict()
+        cnt1 = dict()  # information_coverage
+        cnt2 = dict()  # auxiliary_score
+        cnt3 = dict()  # overall_score
         length = 0
         for i, item in enumerate(reader):
             length += 1
@@ -78,55 +85,66 @@ def read_csv(file_path):
             c = item[-2]
             cnt1[a] = cnt1.get(a, 0) + 1
             cnt2[b] = cnt2.get(b, 0) + 1
-            cnt3[c] = cnt3.get(3, 0) + 1
+            cnt3[c] = cnt3.get(c, 0) + 1
         return length, cnt1, cnt2, cnt3
 
 
-def print_cnt(dic: dict, limit: float) -> int:
-    cnt = 0
+def print_cnt(dic: dict):
+    # 0-0.1, 0.1-0.2, 0.2-0.3, 0.3-0.4, 0.4-0.5, 0.5-0.6, 0.6-0.7, 0.7-0.75, 0.75-0.8, 0.8-0.9, 0.9-1
+    cnt = [0] * 11
     for k in dic:
-        if float(k) <= limit:
-            cnt += dic[k]
+        t = k
+        k = float(k)
+        if k >= 0.9:
+            cnt[-1] += dic[t]
+        elif k >= 0.8:
+            cnt[-2] += dic[t]
+        elif k >= 0.75:
+            cnt[-3] += dic[t]
+        elif k >= 0.7:
+            cnt[-4] += dic[t]
+        elif k >= 0.6:
+            cnt[-5] += dic[t]
+        elif k >= 0.5:
+            cnt[-6] += dic[t]
+        elif k >= 0.4:
+            cnt[-7] += dic[t]
+        elif k >= 0.3:
+            cnt[-8] += dic[t]
+        elif k >= 0.2:
+            cnt[-9] += dic[t]
+        elif k >= 0.1:
+            cnt[-10] += dic[t]
+        elif k >= 0.0:
+            cnt[-11] += dic[t]
     print(cnt)
-    return cnt
 
 
 def count(file_path):
     length, cnt1, cnt2, cnt3 = read_csv(file_path)
     print(length - 1)
     print("-" * 5)
-    print_cnt(cnt1, 0.8)
-    print_cnt(cnt1, 0.75)
-    print_cnt(cnt1, 0.7)
-    print_cnt(cnt1, 0.65)
-    print_cnt(cnt1, 0.6)
+    print_cnt(cnt1)
     print("-" * 5)
-    print_cnt(cnt2, 0.8)
-    print_cnt(cnt2, 0.75)
-    print_cnt(cnt2, 0.7)
-    print_cnt(cnt2, 0.65)
-    print_cnt(cnt2, 0.6)
+    print_cnt(cnt2)
     print("-" * 5)
-    print_cnt(cnt3, 0.8)
-    print_cnt(cnt3, 0.75)
-    print_cnt(cnt3, 0.7)
-    print_cnt(cnt3, 0.65)
-    print_cnt(cnt3, 0.6)
+    print_cnt(cnt3)
 
 
 if __name__ == "__main__":
-    file_path = "data/processed/e4-8-md_files_summ/data1.csv"
+    csv_file_path = "data/outputs/md_files_summ/log.csv"
 
-    count(file_path)
+    count(csv_file_path)
 
+    # md_files_path = "data/outputs/md_files_summ/"
     # print(
     #     "chunck_tokens",
     #     "summary_tokens",
     #     "keywords_cnt",
     #     "key_sentences_cnt",
     #     "information_coverage",
-    #     "semantic_eval_score",
+    #     "auxiliary_score",
     #     "overall_score",
     #     "result",
     # )
-    # read_json_files(file_path)
+    # read_json_files(md_files_path)

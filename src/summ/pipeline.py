@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+from pathlib import Path
 from typing import Any
 
 from src.summ.checker_flow import check_summary_quality_with_flow
@@ -21,8 +21,12 @@ from src.summ.schemas import (
 from src.summ.selector import select_key_sentences
 from src.summ.splitter import split_text_into_sentences
 from src.summ.summarizer import generate_targeted_summary
+from src.utils.logging import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(
+    logger_name=__name__,
+    log_file=Path("logs") / "summ_pipeline.txt",
+)
 
 
 def run_summary_pipeline(
@@ -221,9 +225,11 @@ def summarize_and_check_chunk(
         last_check_result = check_result
 
         if not check_result.passed:
+            # add code
             logger.warning(
                 "Summary check failed: %s, attempt_num=%s, information_coverage=%.4f, auxiliary_score=%.4f, overall_score=%.4f",
-                location_label or f"prepared_chunk_id={prepared_chunk.prepared_chunk_id}",
+                location_label
+                or f"prepared_chunk_id={prepared_chunk.prepared_chunk_id}",
                 attempt,
                 check_result.information_coverage,
                 check_result.auxiliary_score,
@@ -363,4 +369,3 @@ def _find_titles_by_block_indices(
         titles.append(title)
 
     return titles
-

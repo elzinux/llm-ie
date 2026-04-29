@@ -257,7 +257,7 @@ def _flush_section(
 
     current_title = "_ ".join(current_title_parts) if current_title_parts else "unknown"
     section_text = "\n\n".join(current_section_paragraphs).strip()
-
+    section_text = clean_escaped_control_chars(section_text)
     if not section_text:
         return
 
@@ -418,8 +418,100 @@ def read_md_file(
     )
 
 
+# =========================
+# 删除转义字符
+# =========================
+
+# 需要特殊处理的控制字符：
+# 保留 \n \r \t，不处理它们；
+# 删除/替换其他 C0 控制字符和 DEL
+_CONTROL_CHAR_PATTERN = r"[\x00-\x08\x0B-\x1F\x7F]"
+
+# 常见单位
+_UNIT_PATTERN = (
+    r"(?:kg|g|mg|ug|μg|ng|ha|m|cm|mm|km|"
+    r"s|d|day|days|h|min|"
+    r"mol|mmol|cmol|"
+    r"Pa|kPa|MPa|"
+    r"N|P|K|C|°C|K|%|"
+    r"L|mL|uL|μL)"
+)
+
+# 匹配：单位 + 控制字符 + 数字
+# 例如：
+# kg\x051  -> kg-1
+# cm\x052  -> cm-2
+# m\x051   -> m-1
+_UNIT_CTRL_EXP_RE = re.compile(
+    rf"(?P<unit>{_UNIT_PATTERN})(?P<ctrl>{_CONTROL_CHAR_PATTERN})(?P<exp>\d+)",
+    flags=re.IGNORECASE,
+)
+
+# 其他剩余控制字符
+_OTHER_CTRL_RE = re.compile(_CONTROL_CHAR_PATTERN)
+
+
+def clean_escaped_control_chars(text: str) -> str:
+    """
+    清洗 MinerU / PDF 解析文本中的异常控制字符。
+
+    规则：
+    1. 如果是“常规单位 + 控制字符 + 数字”，将控制字符替换为 "-"
+       例如：
+       - kg\\x051 -> kg-1
+       - cm\\x052 -> cm-2
+       - m\\x051  -> m-1
+    2. 其他控制字符统一替换为空格
+    3. 保留换行结构
+    4. 适度清理多余空白
+
+    参数:
+        text: 原始文本
+
+    返回:
+        清洗后的文本
+    """
+    if not text:
+        return ""
+
+    # 统一换行
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # 删除常见零宽字符和 BOM
+    text = (
+        text.replace("\ufeff", "")
+        .replace("\u200b", "")
+        .replace("\u200c", "")
+        .replace("\u200d", "")
+        .replace("\u2060", "")
+    )
+
+    # tab 先转空格，避免影响后续匹配
+    text = text.replace("\t", " ")
+
+    # 单位中的控制字符替换成 "-"
+    text = _UNIT_CTRL_EXP_RE.sub(
+        lambda m: f"{m.group('unit')}-{m.group('exp')}",
+        text,
+    )
+
+    # 其他控制字符替换为空格
+    text = _OTHER_CTRL_RE.sub(" ", text)
+
+    # 合并行内多余空格
+    text = re.sub(r"[ \u00A0]{2,}", " ", text)
+
+    # 清理行尾空格
+    text = re.sub(r"[ ]+\n", "\n", text)
+
+    # 连续空行压缩为最多两个
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()
+
+
 if __name__ == "__main__":
-    md_file = "data/raw/test/3.md"
+    md_file = "data/raw/md_files/1.md"
     res = read_md_file(md_file)
     for x in res.items:
         print(x.title)

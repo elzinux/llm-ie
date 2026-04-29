@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 from rapidfuzz import fuzz
 from sentence_transformers import util
 
@@ -9,6 +12,44 @@ from src.summ.schemas import CheckResult, ExtractionRecord, PreparedSummaryChunk
 from src.summ.splitter import split_paragraph_into_sentences
 from src.utils.model_resources import get_embedding_model
 from src.utils.normalize_text import normalize_text
+
+_NLI_LOG_FILE = Path("logs") / "summ_nli_scores.txt"
+
+
+def _get_nli_score_logger() -> logging.Logger:
+    """
+    仅用于记录 NLI 打分分析结果。
+    只写文件，不输出到终端。
+    """
+    logger = logging.getLogger(f"{__name__}.nli_score")
+    logger.setLevel(logging.INFO)
+
+    if logger.handlers:
+        return logger
+
+    _NLI_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    file_handler = logging.FileHandler(_NLI_LOG_FILE, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter("%(message)s"))
+
+    logger.addHandler(file_handler)
+    logger.propagate = False
+    return logger
+
+
+nli_score_logger = _get_nli_score_logger()
+
+
+def _ensure_nli_score_log_header() -> None:
+    """
+    如果日志文件为空，则写入表头。
+    """
+    if not _NLI_LOG_FILE.exists() or _NLI_LOG_FILE.stat().st_size == 0:
+        nli_score_logger.info(
+            "prepared_chunk_id\tcontradiction\tentailment\tneutral\tauxiliary_score"
+        )
+
 
 _DEFAULT_EMBEDDING_MODEL_NAME = MODEL_RESOURCE_CONFIG.embedding_model_name
 _RELEVANCE_WEIGHTS = {"high": 3, "medium": 2, "low": 1, "none": 0}
@@ -54,9 +95,22 @@ def check_summary_quality(
             sentence_semantic_threshold=config.sentence_semantic_threshold,
         )
 
-    auxiliary_score = compute_auxiliary_score(
+    auxiliary_score, nli_score = compute_auxiliary_score(
         source_text=source_chunk.text,
         summary=summary,
+    )
+
+    _ensure_nli_score_log_header()
+
+    contradiction, entailment, neutral = nli_score
+
+    nli_score_logger.info(
+        "%s\t%.4f\t%.4f\t%.4f\t%.4f",
+        source_chunk.prepared_chunk_id,
+        contradiction,
+        entailment,
+        neutral,
+        auxiliary_score,
     )
 
     overall_score = _compute_overall_score(
@@ -66,15 +120,12 @@ def check_summary_quality(
     )
 
     passed = (
-        (
-            information_coverage >= config.coverage_threshold
-            and auxiliary_score >= config.auxiliary_score_threshold
-        )
-        or (
-            overall_score >= config.overall_threshold
-            and information_coverage >= config.minimum_coverage_floor
-            and auxiliary_score >= config.minimum_auxiliary_floor
-        )
+        information_coverage >= config.coverage_threshold
+        and auxiliary_score >= config.auxiliary_score_threshold
+    ) or (
+        overall_score >= config.overall_threshold
+        and information_coverage >= config.minimum_coverage_floor
+        and auxiliary_score >= config.minimum_auxiliary_floor
     )
 
     return CheckResult(
@@ -194,6 +245,8 @@ def _compute_key_sentence_coverage(
     summary_sentences = split_paragraph_into_sentences(summary)
     if not summary_sentences:
         summary_sentences = [summary]
+    # 对摘要中的长句子进行切分
+    summary_sentences = _build_summary_matching_units(summary_sentences, key_sentences)
 
     if key_sentence_relevance is None:
         key_sentence_relevance = []
@@ -396,3 +449,184 @@ def _compute_overall_score(
         + auxiliary_score * config.auxiliary_score_weight
     ) / total_weight
     return round(score, 4)
+
+
+# 切分 summary 中的句子，使得长度能匹配 key_sentences
+def _is_fragment_boundary_char(c: str) -> bool:
+    """
+    判断当前字符是否适合作为切分边界。
+
+    这里采用较宽松的规则：
+    - 只要不是字母或数字，就认为可以作为边界
+    - 典型包括：空格、标点、括号、连字符等
+    """
+    return not c.isalnum()
+
+
+def _find_safe_split_pos(text: str, target_pos: int, search_radius: int = 10) -> int:
+    """
+    在目标切分点附近寻找更安全的切分位置。
+
+    规则：
+    1. 先向后找，最多 search_radius 个字符
+    2. 再向前找，最多 search_radius 个字符
+    3. 如果都找不到，就返回 target_pos 直接硬切
+
+    返回值是切分位置，满足：
+    - text[:pos] 为左侧片段
+    - text[pos:] 为右侧片段
+    """
+    n = len(text)
+    if n == 0:
+        return 0
+
+    target_pos = max(1, min(target_pos, n - 1))
+
+    # 先向后找
+    end = min(n - 1, target_pos + search_radius)
+    for pos in range(target_pos, end + 1):
+        if _is_fragment_boundary_char(text[pos]):
+            return pos + 1
+
+    # 再向前找
+    start = max(1, target_pos - search_radius)
+    for pos in range(target_pos - 1, start - 1, -1):
+        if _is_fragment_boundary_char(text[pos]):
+            return pos + 1
+
+    # 都找不到则硬切
+    return target_pos
+
+
+def _split_long_sentence_for_matching(
+    sentence: str,
+    window_len: int,
+    overlap_len: int,
+    search_radius: int = 10,
+) -> list[str]:
+    """
+    对单个长句做滑动切分，生成适合相似度匹配的较短片段。
+
+    规则：
+    - 若句长不超过 window_len，则直接返回原句
+    - 若句长超过 window_len，则按窗口长度切分
+    - 相邻窗口保留 overlap_len 重叠
+    - 每次切分时优先在 target_pos 附近寻找安全边界
+    - 保留去重后的非空片段
+    """
+    sentence = sentence.strip()
+    if not sentence:
+        return []
+
+    if len(sentence) <= window_len:
+        return [sentence]
+
+    results: list[str] = []
+    seen: set[str] = set()
+
+    start = 0
+    n = len(sentence)
+
+    while start < n:
+        raw_end = start + window_len
+        if raw_end >= n:
+            fragment = sentence[start:].strip()
+            if fragment and fragment not in seen:
+                results.append(fragment)
+                seen.add(fragment)
+            break
+
+        split_pos = _find_safe_split_pos(
+            sentence,
+            target_pos=raw_end,
+            search_radius=search_radius,
+        )
+
+        # 防御：避免切分点没有前进，导致死循环
+        if split_pos <= start:
+            split_pos = min(n, raw_end)
+
+        fragment = sentence[start:split_pos].strip()
+        if fragment and fragment not in seen:
+            results.append(fragment)
+            seen.add(fragment)
+
+        next_start = max(start + 1, split_pos - overlap_len)
+        if next_start <= start:
+            next_start = split_pos
+
+        start = next_start
+
+    return results
+
+
+def _build_summary_matching_units(
+    summary_sentences: list[str],
+    key_sentences: list[str],
+) -> list[str]:
+    """
+    为 summary 构造用于匹配 key_sentences 的比较单元。
+
+    逻辑：
+    1. 保留所有原始 summary 句子
+    2. 根据 key_sentences 的长度统计，确定长句切分参数
+    3. 对明显过长的句子，额外切出若干较短片段
+    4. 最终返回“原句 + 切分片段”的去重结果
+
+    参数:
+        summary_sentences: spaCy 分句后的 summary 句子列表
+        key_sentences: 当前记录中的关键片段列表
+
+    返回:
+        可用于匹配的 summary 单元列表
+    """
+    cleaned_summary_sentences = [
+        s.strip() for s in summary_sentences if s and s.strip()
+    ]
+    cleaned_key_sentences = [s.strip() for s in key_sentences if s and s.strip()]
+
+    if not cleaned_summary_sentences:
+        return []
+
+    # 没有 key_sentences 时，退化为直接返回原句
+    if not cleaned_key_sentences:
+        return cleaned_summary_sentences
+
+    key_lengths = sorted(len(s) for s in cleaned_key_sentences)
+    if not key_lengths:
+        return cleaned_summary_sentences
+
+    # 使用稳健一点的代表长度，而不是 min/max
+    p50_idx = int((len(key_lengths) - 1) * 0.50)
+    p75_idx = int((len(key_lengths) - 1) * 0.75)
+
+    p50 = key_lengths[p50_idx]
+    p75 = key_lengths[p75_idx]
+
+    # 切分参数
+    window_len = max(p75 * 2, 80)
+    overlap_len = max(p50 // 2, 20)
+
+    results: list[str] = []
+    seen: set[str] = set()
+
+    for sentence in cleaned_summary_sentences:
+        # 始终保留原句
+        if sentence not in seen:
+            results.append(sentence)
+            seen.add(sentence)
+
+        # 对过长句子再额外切分
+        if len(sentence) > window_len:
+            fragments = _split_long_sentence_for_matching(
+                sentence=sentence,
+                window_len=window_len,
+                overlap_len=overlap_len,
+                search_radius=10,
+            )
+            for fragment in fragments:
+                if fragment not in seen:
+                    results.append(fragment)
+                    seen.add(fragment)
+
+    return results
