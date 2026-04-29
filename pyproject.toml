@@ -14,8 +14,16 @@ dependencies = [
     "sentence-transformers>=5.3.0",
     "spacy>=3.8.13",
     "tiktoken>=0.12.0",
+    "torch",
 ]
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple"
 default = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
